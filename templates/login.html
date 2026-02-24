@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - HMP Portal</title>
+    <link rel="preload" href="{{ url_for('static', filename='style.css') }}" as="style">
+    <link rel="preload" href="{{ url_for('static', filename='HMP-LOGO.jpeg') }}" as="image">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body class="login-page-body">
+    <div class="login-card">
+        <img src="{{ url_for('static', filename='HMP-LOGO.jpeg') }}" alt="Logo" width="80" height="80">
+        <h2 style="color: var(--primary);">Staff Login</h2>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div style="color: red; margin-bottom: 15px; font-size: 0.9rem;">{{ message }}</div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <form id="login-form" action="{{ url_for('auth.login') }}" method="POST">
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" name="username" required autofocus autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <div class="pw-wrapper">
+                    <input type="password" id="password-field" name="password" required autocomplete="current-password">
+                    <button type="button" class="pw-toggle" id="pw-toggle-btn" title="Show/hide password">👁️</button>
+                </div>
+            </div>
+            <button type="submit" class="btn-login" id="login-btn">Login Securely</button>
+        </form>
+    </div>
+
+    <script>
+        sessionStorage.removeItem('tab_token');
+
+        document.getElementById('pw-toggle-btn').addEventListener('click', function () {
+            const field = document.getElementById('password-field');
+            const isHidden = field.type === 'password';
+            field.type = isHidden ? 'text' : 'password';
+            this.textContent = isHidden ? '🙈' : '👁️';
+        });
+
+        document.getElementById('login-form').addEventListener('submit', function () {
+            sessionStorage.setItem('tab_token', 'valid');
+            const btn = document.getElementById('login-btn');
+            btn.disabled = true;
+            btn.textContent = 'Logging in…';
+        });
+    </script>
+</body>
+
+</html>

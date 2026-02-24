@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HMP Portal</title>
+
+    <!-- Preload Bootstrap for faster render -->
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" as="style">
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" as="script">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+
+    <script>
+        // --- AUTO-LOGOUT ON TAB CLOSE ---
+        const isUserLoggedIn = "{{ current_user.is_authenticated }}";
+        if (isUserLoggedIn === "True") {
+            const tabToken = sessionStorage.getItem('tab_token');
+            if (!tabToken) {
+                // FIXED: auth.logout
+                window.location.href = "{{ url_for('auth.logout') }}";
+            }
+        }
+    </script>
+</head>
+
+<body class="bg-light">
+
+    <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm fixed-top">
+        <div class="container-fluid px-4">
+
+            <a class="navbar-brand" href="{{ url_for('inventory.dashboard') }}">
+                <img src="{{ url_for('static', filename='HMP-LOGO.jpeg') }}" alt="HMP"
+                    style="height: 45px; width: auto;">
+            </a>
+
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#hmpNavbar"
+                aria-controls="hmpNavbar" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <div class="collapse navbar-collapse" id="hmpNavbar">
+
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                    <li class="nav-item">
+                        <a class="nav-link fw-bold text-secondary"
+                            href="{{ url_for('inventory.dashboard') }}">Dashboard</a>
+                    </li>
+
+                    {% if current_user.role == 'purchase' or current_user.role == 'admin' %}
+                    <li class="nav-item">
+                        <a class="nav-link fw-bold text-secondary"
+                            href="{{ url_for('purchase.purchase_page') }}">Purchase</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link fw-bold text-secondary"
+                            href="{{ url_for('purchase.purchase_log') }}">Logs</a>
+                    </li>
+                    {% endif %}
+
+                    {% if current_user.role == 'sales' or current_user.role == 'admin' %}
+                    <li class="nav-item">
+                        <a class="nav-link fw-bold text-secondary" href="{{ url_for('sales.sales_page') }}">Sales</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link fw-bold text-secondary" href="{{ url_for('sales.sales_log') }}">History</a>
+                    </li>
+                    {% endif %}
+
+                    <li class="nav-item">
+                        <a class="nav-link fw-bold text-secondary"
+                            href="{{ url_for('inventory.inventory') }}">Inventory</a>
+                    </li>
+                </ul>
+
+                <div class="d-flex align-items-center">
+                    {% if current_user.is_authenticated %}
+                    <div class="me-3 text-end d-none d-lg-block">
+                        <span class="d-block text-dark fw-bold" style="font-size: 0.9rem;">{{ current_user.username
+                            }}</span>
+                        <span class="badge bg-secondary" style="font-size: 0.7rem;">{{ current_user.role|upper }}</span>
+                    </div>
+                    <div class="d-lg-none mb-2 text-muted small">
+                        Logged in as: <strong>{{ current_user.username }}</strong>
+                    </div>
+
+                    <a href="{{ url_for('auth.logout') }}" class="btn btn-danger btn-sm px-3">Logout</a>
+                    {% else %}
+                    <a href="{{ url_for('auth.login') }}" class="btn btn-primary btn-sm px-3">Login</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container my-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="mb-3">
+            {% for category, message in messages %}
+            <div class="alert alert-{{ category if category != 'error' else 'danger' }} alert-dismissible fade show shadow-sm"
+                role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Keep-Alive Ping
+        // Ensure you have a /ping route in one of your blueprints, or this will return 404
+        setInterval(() => {
+            fetch('/ping').catch(err => console.log('Ping failed', err));
+        }, 10000);
+    </script>
+    <!-- Global Script to Prevent Auto-Submit on Enter -->
+    <script>
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' && event.target.tagName === 'INPUT') {
+                // Allow explicit submission if the input is a submit button (unlikely for type='text' but good practice)
+                if (event.target.type === 'submit' || event.target.type === 'button') return;
+
+                // If existing listeners (like barcode scanner) handled it, they should call preventDefault()
+                // If they didn't, we stop the form submission here.
+                if (!event.defaultPrevented) {
+                    event.preventDefault();
+                    // Optional: Move focus to next input? For now, just stop submission.
+                }
+            }
+        });
+    </script>
+</body>
+
+</html>

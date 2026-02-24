@@ -1,0 +1,412 @@
+{% extends "_layout.html" %}
+
+{% block content %}
+<h1>Record New Purchase</h1>
+
+<div class="card">
+    <div class="flex-between mb-2">
+        <h2>Purchase & Stock</h2>
+        <div class="toggle-container">
+            <button type="button" id="btn-mode-supplier" class="btn-toggle active" onclick="setMode('supplier')">By
+                Supplier</button>
+            <button type="button" id="btn-mode-category" class="btn-toggle" onclick="setMode('category')">By
+                Category</button>
+        </div>
+    </div>
+
+    <p id="mode-desc" class="text-muted mb-2">Select a supplier to manage their specific products.</p>
+
+    <form method="POST" action="{{ url_for('purchase.process_purchase') }}" id="purchase-form">
+
+        <div class="row align-items-end mb-2 g-2">
+            <!-- SUPPLIER DROPDOWN -->
+            <div class="col-12 col-sm form-group mb-0" id="div-supplier-select">
+                <label>Select Supplier</label>
+                <select name="supplier_id" id="supplier_select" class="form-control"
+                    onchange="loadProducts(this.value, 'supplier')">
+                    <option value="" disabled selected>-- Select Supplier --</option>
+                    {% for s in suppliers %}
+                    <option value="{{ s.id }}">{{ s.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- CATEGORY DROPDOWN -->
+            <div class="col-12 col-sm form-group mb-0" id="div-category-select" style="display:none;">
+                <label>Select Category</label>
+                <select id="category_select_filter" class="form-control"
+                    onchange="loadProducts(this.value, 'category')">
+                    <option value="" disabled selected>-- Select Category --</option>
+                    {% for c in categories %}
+                    <option value="{{ c }}">{{ c }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-auto">
+                <button type="button" id="btn-add-new-supplier" class="btn btn-secondary"
+                    onclick="openModal('supplierModal')">+ Supplier</button>
+            </div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- CATALOG TABLE -->
+        <div id="catalog-section" style="display:none;">
+            <div class="flex-between mb-2 flex-wrap gap-10">
+                <h3>Catalog: <span id="display-filter-name" style="color: var(--primary);"></span></h3>
+                <div style="display:flex; gap:10px;">
+                    <button type="button" id="btn-add-new-prod" class="btn btn-success"
+                        onclick="openModal('productModal')">+ Add Product</button>
+                    <a href="#" id="download-list-btn" class="btn btn-secondary" target="_blank">Download List</a>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table id="bulk-order-table" style="min-width: 800px;"> <!-- Ensure table doesn't squash too much -->
+                    <thead>
+                        <tr>
+                            <th style="width: 20%;">Product</th>
+                            <th style="width: 10%;">HSN / GST</th>
+                            <th style="width: 15%;">Stock (Qty)</th>
+                            <th style="width: 20%;">Min / Max</th> <!-- Increased width -->
+                            <th style="width: 10%;">Cost</th>
+                            <th style="width: 10%;">Sales</th>
+                            <th style="width: 15%; background-color: var(--light);">Order Qty</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bulk-order-body"></tbody>
+                </table>
+            </div>
+
+            <div class="mt-2 p-2 d-flex justify-content-between align-items-center flex-wrap gap-10"
+                style="background: var(--light); border-radius: var(--radius);">
+                <div style="display:flex; gap:20px; flex-wrap:wrap;">
+                    <span class="font-bold text-muted">Items Ordered: <span id="total-items-count"
+                            style="color:var(--primary);">0</span></span>
+                    <span class="font-bold text-muted">Est. Cost: <span id="est-total-cost"
+                            style="color:var(--primary);">₹0</span></span>
+                    <span class="font-bold text-muted">With GST: <span id="est-total-gst"
+                            style="color:#2e7d32;">₹0</span></span>
+                </div>
+                <div>
+                    <input type="hidden" name="purchase_cart" id="purchase_cart_input">
+                    <button type="button" class="btn btn-primary" style="margin-left: 15px;"
+                        onclick="submitBulkOrder()">Place Order</button>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- SUPPLIER MODAL -->
+<div id="supplierModal" class="custom-modal">
+    <div class="custom-modal-content">
+        <span class="close-modal" onclick="closeModal('supplierModal')">&times;</span>
+        <h3 class="text-center">Add New Supplier</h3>
+        <form action="{{ url_for('purchase.add_supplier') }}" method="POST">
+            <div class="form-group">
+                <label>Supplier Name</label>
+                <input type="text" name="supplier_name" required>
+            </div>
+            <button type="submit" class="btn btn-success w-100">Save Supplier</button>
+        </form>
+    </div>
+</div>
+
+<!-- PRODUCT MODAL -->
+<div id="productModal" class="custom-modal">
+    <div class="custom-modal-content">
+        <span class="close-modal" onclick="closeModal('productModal')">&times;</span>
+        <h3>Add Product</h3>
+        <p class="text-muted mb-2">For: <span id="modal-supplier-name" style="color: var(--primary);"></span></p>
+
+        <form action="{{ url_for('purchase.add_product_to_supplier') }}" method="POST">
+            <input type="hidden" name="modal_supplier_id" id="modal_supplier_id">
+
+            <div class="form-group">
+                <label>Barcode</label>
+                <input type="text" name="barcode" placeholder="Scan Barcode..."
+                    style="border-color: var(--primary); background: #f0f8ff;">
+            </div>
+
+            <div class="form-group"><label>Category</label><input type="text" name="category" class="form-control"
+                    required></div>
+
+            <div class="row g-2">
+                <div class="col-12 col-sm-6 form-group"><label>HSN</label><input type="text" name="hsn_code"
+                        class="form-control"></div>
+                <div class="col-12 col-sm-6 form-group"><label>GST %</label><input type="number" name="gst_rate"
+                        value="0" class="form-control"></div>
+            </div>
+
+            <div class="form-group">
+                <label>Product Name (Sales &amp; Inventory)</label>
+                <input type="text" name="product_name" class="form-control" required
+                    placeholder="e.g. Glass Cleaner 5L">
+            </div>
+
+            <div class="form-group">
+                <label>Purchase Name (For PO only)</label>
+                <input type="text" name="purchase_name" class="form-control" placeholder="e.g. GC-500 Industrial Pack">
+                <small class="text-muted">Leave empty to use Sales Name</small>
+            </div>
+            <div class="form-group">
+                <label>Unit</label>
+                <select name="unit" class="form-control">
+                    <option>Pkt</option>
+                    <option>Ltr</option>
+                    <option>Kg</option>
+                    <option>Box</option>
+                    <option>Nos.</option>
+                    <option>Can</option>
+                    <option>Roll</option>
+                    <option>Pcs</option>
+                    <option>Pair</option>
+                    <option>sq.ft</option>
+                </select>
+            </div>
+
+            <div class="mb-2 p-2" style="border: 1px dashed var(--border); background: var(--bg-body);">
+                <label style="display:flex; align-items:center; cursor:pointer; gap:10px;">
+                    <input type="checkbox" name="has_subcategory" onchange="toggleSubCategory(this)">
+                    Has Variations? (Color, Size etc.)
+                </label>
+                <div id="subcategory-fields" style="display:none; margin-top:10px;">
+                    <div class="form-group">
+                        <label>Type</label><input type="text" name="subcategory_type" placeholder="e.g. Color">
+                    </div>
+                    <div class="form-group">
+                        <label>Options (comma separated)</label><input type="text" name="subcategory_options"
+                            placeholder="Red, Blue">
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-2">
+                <div class="col-6 form-group"><label>Cost Price</label><input type="number" name="purchase_price"
+                        step="0.01" class="form-control"></div>
+                <div class="col-6 form-group"><label>Sales Price</label><input type="number" name="sales_price"
+                        step="0.01" class="form-control"></div>
+            </div>
+            <div class="row g-2">
+                <div class="col-6 form-group"><label>Min Stock</label><input type="number" name="min_stock" value="10"
+                        class="form-control"></div>
+                <div class="col-6 form-group"><label>Max Stock</label><input type="number" name="max_stock" value="100"
+                        class="form-control"></div>
+            </div>
+            <button type="submit" class="btn btn-success w-100">Save Product</button>
+        </form>
+    </div>
+</div>
+<!-- Scripts -->
+<script>
+    let currentMode = 'supplier';
+
+    document.addEventListener("DOMContentLoaded", function () {
+        const autoSupplier = "{{ auto_supplier or '' }}";
+        if (autoSupplier) {
+            document.getElementById('supplier_select').value = autoSupplier;
+            loadProducts(autoSupplier, 'supplier');
+        }
+    });
+
+    function toggleSubCategory(checkbox) {
+        document.getElementById('subcategory-fields').style.display = checkbox.checked ? 'block' : 'none';
+    }
+
+    function setMode(mode) {
+        currentMode = mode;
+        document.getElementById('catalog-section').style.display = 'none';
+        const btnSup = document.getElementById('btn-mode-supplier');
+        const btnCat = document.getElementById('btn-mode-category');
+
+        if (mode === 'supplier') {
+            btnSup.classList.add('active'); btnCat.classList.remove('active');
+            document.getElementById('div-supplier-select').style.display = 'block';
+            document.getElementById('btn-add-new-supplier').style.display = 'block';
+            document.getElementById('div-category-select').style.display = 'none';
+            document.getElementById('mode-desc').textContent = "Select a supplier to manage their specific products.";
+        } else {
+            btnCat.classList.add('active'); btnSup.classList.remove('active');
+            document.getElementById('div-supplier-select').style.display = 'none';
+            document.getElementById('btn-add-new-supplier').style.display = 'none';
+            document.getElementById('div-category-select').style.display = 'block';
+            document.getElementById('mode-desc').textContent = "Select a category to view items from all suppliers.";
+        }
+    }
+
+    function openModal(id) { document.getElementById(id).classList.add('active'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+    window.onclick = function (e) { if (e.target.classList.contains('custom-modal')) e.target.classList.remove('active'); }
+
+    async function loadProducts(value, type) {
+        if (!value) return;
+
+        // 1. Setup API Endpoints based on selection type
+        let endpoint = type === 'supplier' ? `/get_products_by_supplier/${value}` : `/get_products_by_category/${value}`;
+        let downloadUrl = type === 'supplier' ? `/download_supplier_products/${value}` : `#`;
+
+        // 2. Update UI Elements (Buttons, Headers)
+        if (type === 'supplier') {
+            const name = document.querySelector(`#supplier_select option[value="${value}"]`).text;
+            document.getElementById('display-filter-name').textContent = name;
+            document.getElementById('modal-supplier-name').textContent = name;
+            document.getElementById('modal_supplier_id').value = value;
+            document.getElementById('btn-add-new-prod').style.display = 'inline-block';
+        } else {
+            document.getElementById('display-filter-name').textContent = value;
+            document.getElementById('btn-add-new-prod').style.display = 'none';
+        }
+
+        document.getElementById('download-list-btn').href = downloadUrl;
+        document.getElementById('catalog-section').style.display = 'block';
+
+        // 3. Fetch Data from Backend
+        const response = await fetch(endpoint);
+        const products = await response.json();
+        const tbody = document.getElementById('bulk-order-body');
+        tbody.innerHTML = '';
+
+        // 4. Handle Empty Results
+        if (products.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center p-3">No products found.</td></tr>';
+            return;
+        }
+
+        // 5. Build Table Rows
+        products.forEach(p => {
+            // Helper: Format Barcode
+            let barcodeDisplay = p.barcode ? `<div class="text-muted" style="font-size:0.75rem;">🔍 ${p.barcode}</div>` : '';
+
+            // Helper: Format GST
+            let gstDisplay = p.gst_rate ? `<div style="font-size:0.75rem; color:var(--secondary);">GST: ${p.gst_rate}%</div>` : '';
+
+            // --- NEW: LAST RECEIVED DISPLAY ---
+            // Shows the date if it exists, otherwise shows "Never Received"
+            let lastRcvDisplay = p.last_purchased
+                ? `<div style="font-size:0.75rem; color:#2e7d32; margin-top:2px; font-weight:500;">📅 Last: ${p.last_purchased}</div>`
+                : '<div style="font-size:0.75rem; color:#999; margin-top:2px;">📅 Never Received</div>';
+
+            // Helper: Highlight Low Stock Rows (Red Background)
+            let rowStyle = '';
+            if (p.stock <= p.min_stock) {
+                rowStyle = 'background-color: #ffebee; border-left: 4px solid var(--danger);';
+            }
+
+            const row = document.createElement('tr');
+            if (rowStyle) row.style.cssText = rowStyle;
+
+            row.innerHTML = `
+                    <td>
+                        <strong>${p.name}</strong>
+                        <br><small class="text-muted">${p.category}</small>
+                        ${barcodeDisplay}
+                        ${lastRcvDisplay} </td>
+                    
+                    <td>
+                        <div style="font-size: 0.9rem;">${p.hsn_code || '-'}</div>
+                        ${gstDisplay}
+                    </td>
+                    
+                    <td>
+                        <input type="number" class="input-sm w-100" value="${p.stock}" 
+                               onblur="updateProductStock(${p.id}, 'quantity', this)" 
+                               style="font-weight:bold; border-color:#ccc; min-width: 60px;">
+                        <small class="text-muted" style="display:block; text-align:right;">${p.unit}</small>
+                    </td>
+                    
+                    <td>
+                        <div style="display:flex; align-items:center; gap:5px; flex-wrap: wrap;">
+                            <input type="number" class="input-sm" value="${p.min_stock}" 
+                                   onblur="updateProductStock(${p.id}, 'min_stock', this)" 
+                                   style="flex: 1; min-width: 50px; border-color:#ccc; text-align:center;" title="Min">
+                            <span style="color:#aaa;">/</span>
+                            <input type="number" class="input-sm" value="${p.max_stock}" 
+                                   onblur="updateProductStock(${p.id}, 'max_stock', this)" 
+                                   style="flex: 1; min-width: 50px; border-color:#ccc; text-align:center;" title="Max">
+                        </div>
+                    </td>
+
+                    <td><input type="number" step="0.01" class="input-sm table-input cost-input w-100" value="${p.purchase_price}" data-id="${p.id}" style="min-width: 60px;"></td>
+                    <td><input type="number" step="0.01" class="input-sm table-input sales-input w-100" value="${p.sales_price}" data-id="${p.id}" style="min-width: 60px;"></td>
+                    <td><input type="number" min="0" class="input-sm qty-input" placeholder="0" data-id="${p.id}" data-name="${p.name}" data-cat="${p.category}" oninput="updateTotalCount()" style="width: 100%; min-width: 60px;"></td>
+                `;
+            tbody.appendChild(row);
+        });
+    }
+
+    async function updateProductStock(id, field, inputElement) {
+        const originalColor = inputElement.style.borderColor;
+        const value = inputElement.value;
+
+        try {
+            const response = await fetch('/update_product_inline', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: id, field: field, value: value })
+            });
+            const result = await response.json();
+
+            if (result.success) {
+                inputElement.style.borderColor = 'green';
+                setTimeout(() => { inputElement.style.borderColor = originalColor; }, 1000);
+            } else {
+                inputElement.style.borderColor = 'red';
+                alert('Failed to update: ' + (result.error || 'Unknown error'));
+            }
+        } catch (err) {
+            inputElement.style.borderColor = 'red';
+            console.error(err);
+        }
+    }
+
+    function updateTotalCount() {
+        let count = 0;
+        let baseCost = 0;
+        let gstTotal = 0;
+        document.querySelectorAll('#bulk-order-body tr').forEach(row => {
+            const qtyInput = row.querySelector('.qty-input');
+            const costInput = row.querySelector('.cost-input');
+            if (qtyInput && parseInt(qtyInput.value) > 0) {
+                count++;
+                const qty = parseInt(qtyInput.value) || 0;
+                const cost = parseFloat(costInput ? costInput.value : 0) || 0;
+                // Read GST from the HSN/GST column (2nd cell)
+                const gstCell = row.cells[1];
+                let gst = 0;
+                if (gstCell) {
+                    const gstMatch = gstCell.textContent.match(/(\d+(?:\.\d+)?)%/);
+                    if (gstMatch) gst = parseFloat(gstMatch[1]);
+                }
+                baseCost += qty * cost;
+                gstTotal += qty * cost * (1 + gst / 100);
+            }
+        });
+        const fmt = n => '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+        document.getElementById('total-items-count').textContent = count;
+        document.getElementById('est-total-cost').textContent = fmt(baseCost);
+        document.getElementById('est-total-gst').textContent = fmt(gstTotal);
+    }
+
+    function submitBulkOrder() {
+        const cartItems = [];
+        document.querySelectorAll('#bulk-order-body tr').forEach(row => {
+            const qtyInput = row.querySelector('.qty-input');
+            if (qtyInput && parseInt(qtyInput.value) > 0) {
+                cartItems.push({
+                    id: qtyInput.dataset.id,
+                    name: qtyInput.dataset.name,
+                    category: qtyInput.dataset.cat,
+                    qty: parseInt(qtyInput.value),
+                    purchase_price: row.querySelector('.cost-input').value,
+                    sales_price: row.querySelector('.sales-input').value
+                });
+            }
+        });
+        if (cartItems.length === 0) { alert("Please enter quantity for at least one item."); return; }
+        document.getElementById('purchase_cart_input').value = JSON.stringify(cartItems);
+        document.getElementById('purchase-form').submit();
+    }
+</script>
+{% endblock %}

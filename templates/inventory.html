@@ -1,0 +1,266 @@
+{% extends "_layout.html" %}
+
+{% block content %}
+<h1>Inventory & Stock</h1>
+
+<!-- FILTER BAR -->
+<div class="card">
+    <div class="filter-bar">
+        <div class="form-group mb-0">
+            <label>🔎 Search Product</label>
+            <input type="text" id="inv-search-name" placeholder="Type product name..." oninput="filterByName()"
+                style="width:100%;">
+        </div>
+
+        <div class="form-group mb-0">
+            <label>Filter by Category</label>
+            <select id="inv-filter-category" onchange="applyFilter('category')">
+                <option value="">All Categories</option>
+                {% for cat in categories %}
+                <option value="{{ cat }}">{{ cat }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group mb-0">
+            <label>Filter by Supplier</label>
+            <select id="inv-filter-supplier" onchange="applyFilter('supplier')">
+                <option value="">All Suppliers</option>
+                {% for sup in suppliers %}
+                <option value="{{ sup.id }}">{{ sup.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <button class="btn btn-secondary" onclick="clearFilters()" style="height:44px;">Clear</button>
+
+        <div style="flex-grow: 1;"></div>
+
+        <a href="#" id="btn-download-inv" class="btn btn-primary" style="display:none;">Download Report</a>
+    </div>
+</div>
+
+<!-- ALERTS -->
+{% if alerts %}
+<div class="card alert-card" id="inv-alert-box">
+    <h3 class="text-danger">❗ Inventory Alerts</h3>
+    <ul class="alert-list">
+        {% for alert in alerts %}
+        <li class="flex-between mb-1 inv-alert-item" id="ialert-{{ alert.product_name|replace(' ','_')|replace("'",'') }}"
+            style="border-bottom:1px solid #eee; padding-bottom:5px;">
+            <span>
+                <strong>{{ alert.product_name }}</strong>
+                (Current: <strong style="font-size: 1.1rem;">{{ alert.current }}</strong>)
+            </span>
+            <div style="display:flex; align-items:center; gap:8px;">
+                {% if alert.deficit %}
+                <span class="status-badge status-unpaid">Need {{ alert.deficit }} more</span>
+                {% endif %}
+                <button class="dismiss-inv-btn" data-name="{{ alert.product_name }}" title="Dismiss for today"
+                    style="background:none;border:none;color:#bbb;font-size:1.1rem;cursor:pointer;padding:2px 5px;"
+                    onmouseover="this.style.color=' #e53935'" onmouseout="this.style.color='#bbb'">✕</button>
+</div>
+</li>
+{% endfor %}
+</ul>
+<div style="text-align:right; margin-top:6px;">
+    <a href="#" onclick="resetInvAlerts();return false;" style="font-size:0.75rem;color:#bbb;">Reset dismissed</a>
+</div>
+</div>
+{% else %}
+<div class="card" style="background: var(--success-bg); border-color: var(--success);">
+    <div class="text-center text-success font-bold">
+        ✅ All items are at or above target stock. Good job!
+    </div>
+</div>
+{% endif %}
+
+<!-- INVENTORY TABLE -->
+<div class="card" id="inv-table-card">
+    <h2 id="inv-table-heading" style="display:none;">Current Inventory</h2>
+    {% if not summary %}
+    <p class="text-muted">Your inventory is empty.</p>
+    {% else %}
+    <p id="inv-search-prompt" class="text-center text-muted" style="padding:2rem 0; font-size:1rem;">
+        🔍 Search by name, category, or supplier above to view products.
+    </p>
+    <div class="table-responsive" id="inv-table-wrapper" style="display:none;">
+        <table id="inventory-table">
+            <thead>
+                <tr>
+                    <th>Category</th>
+                    <th>Product Name</th>
+                    <th>HSN</th>
+                    <th>Barcode</th>
+                    <th>Supplier</th>
+                    <th>List Price</th>
+                    <th>Total Qty</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in summary %}
+                <tr class="inv-row" data-category="{{ item['Category'] }}" data-supplier-id="{{ item['Supplier'] }}"
+                    style="{{ 'background-color: #ffebee;' if item['Current Stock'] <= item['Min Stock'] else '' }}">
+                    <td class="text-muted">{{ item['Category'] }}</td>
+                    <td>{{ item['Product Name'] }}</td>
+                    <td>{{ item['HSN'] or '-' }}</td>
+                    <td class="text-muted" style="font-size:0.8rem;">{{ item['Barcode'] or '' }}</td>
+                    <td class="text-primary">{{ item['Supplier'] }}</td>
+                    <td>{{ "%.2f"|format(item['MRP']) }}</td>
+                    <td class="font-bold">{{ item['Current Stock'] }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p id="no-rows-msg" style="display:none;" class="text-center p-3 text-muted">No products found.</p>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+    // --- Daily-reset dismiss logic ---
+    // Key includes today's IST date — so dismissals auto-clear each new day
+    function getTodayIST() {
+        const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+        return now.toISOString().slice(0, 10);
+    }
+    const ALERT_KEY = 'inv_dismissed_' + getTodayIST();
+
+    function getDismissed() { try { return JSON.parse(localStorage.getItem(ALERT_KEY)) || []; } catch (e) { return []; } }
+
+    function dismissInvAlert(name) {
+        const id = 'ialert-' + name.replace(/ /g, '_');
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+        const d = getDismissed();
+        if (!d.includes(name)) d.push(name);
+        localStorage.setItem(ALERT_KEY, JSON.stringify(d));
+        const visible = [...document.querySelectorAll('.inv-alert-item')].filter(e => e.style.display !== 'none');
+        const box = document.getElementById('inv-alert-box');
+        if (box && visible.length === 0) box.style.display = 'none';
+    }
+
+    // Event delegation — reads data-name attribute, no inline quoting issues
+    document.addEventListener('click', function (e) {
+        const btn = e.target.closest('.dismiss-inv-btn');
+        if (btn) dismissInvAlert(btn.dataset.name);
+    });
+
+    function resetInvAlerts() {
+        localStorage.removeItem(ALERT_KEY);
+        document.querySelectorAll('.inv-alert-item').forEach(li => li.style.display = '');
+        const box = document.getElementById('inv-alert-box');
+        if (box) box.style.display = '';
+    }
+
+    // Apply on load
+    (function () {
+        getDismissed().forEach(name => {
+            const el = document.getElementById('ialert-' + name.replace(/ /g, '_'));
+            if (el) el.style.display = 'none';
+        });
+        const visible = [...document.querySelectorAll('.inv-alert-item')].filter(e => e.style.display !== 'none');
+        const box = document.getElementById('inv-alert-box');
+        if (box && visible.length === 0) box.style.display = 'none';
+    })();
+
+    // --- Product name live search ---
+    function filterByName() {
+        const q = document.getElementById('inv-search-name').value.toLowerCase();
+        document.getElementById('inv-filter-category').value = '';
+        document.getElementById('inv-filter-supplier').value = '';
+        document.getElementById('btn-download-inv').style.display = 'none';
+
+        const wrapper = document.getElementById('inv-table-wrapper');
+        const prompt = document.getElementById('inv-search-prompt');
+        const heading = document.getElementById('inv-table-heading');
+
+        if (!q) {
+            // No search text — hide table, show prompt
+            if (wrapper) wrapper.style.display = 'none';
+            if (prompt) prompt.style.display = '';
+            if (heading) heading.style.display = 'none';
+            return;
+        }
+
+        // Show table
+        if (wrapper) wrapper.style.display = '';
+        if (prompt) prompt.style.display = 'none';
+        if (heading) heading.style.display = '';
+
+        let visible = 0;
+        document.querySelectorAll('.inv-row').forEach(row => {
+            const name = row.children[1].textContent.toLowerCase();
+            const show = name.includes(q);
+            row.style.display = show ? '' : 'none';
+            if (show) visible++;
+        });
+        document.getElementById('no-rows-msg').style.display = visible === 0 ? 'block' : 'none';
+    }
+
+    function applyFilter(type) {
+        const catSelect = document.getElementById('inv-filter-category');
+        const supSelect = document.getElementById('inv-filter-supplier');
+        const downloadBtn = document.getElementById('btn-download-inv');
+        const rows = document.querySelectorAll('.inv-row');
+        const wrapper = document.getElementById('inv-table-wrapper');
+        const prompt = document.getElementById('inv-search-prompt');
+        const heading = document.getElementById('inv-table-heading');
+
+        // Clear name search when dropdown filter used
+        document.getElementById('inv-search-name').value = '';
+
+        let filterVal = type === 'category' ? catSelect.value : supSelect.value;
+        if (type === 'category') supSelect.value = '';
+        else catSelect.value = '';
+
+        if (!filterVal) {
+            // Dropdown reset to "All" — hide table, show prompt
+            if (wrapper) wrapper.style.display = 'none';
+            if (prompt) prompt.style.display = '';
+            if (heading) heading.style.display = 'none';
+            downloadBtn.style.display = 'none';
+            return;
+        }
+
+        // Show table
+        if (wrapper) wrapper.style.display = '';
+        if (prompt) prompt.style.display = 'none';
+        if (heading) heading.style.display = '';
+
+        let visibleCount = 0;
+        rows.forEach(row => {
+            let show = true;
+            if (type === 'category' && row.dataset.category !== filterVal) show = false;
+            if (type === 'supplier') {
+                const selectedText = supSelect.options[supSelect.selectedIndex].text;
+                if (row.children[4].textContent !== selectedText) show = false;
+            }
+            row.style.display = show ? '' : 'none';
+            if (show) visibleCount++;
+        });
+
+        document.getElementById('no-rows-msg').style.display = visibleCount === 0 ? 'block' : 'none';
+        downloadBtn.style.display = 'inline-block';
+        downloadBtn.href = `/download_inventory_report?filter_by=${type}&filter_val=${filterVal}`;
+        downloadBtn.textContent = `Download ${type === 'category' ? filterVal : 'Supplier'} Report`;
+    }
+
+    function clearFilters() {
+        document.getElementById('inv-filter-category').value = '';
+        document.getElementById('inv-filter-supplier').value = '';
+        document.getElementById('inv-search-name').value = '';
+        document.getElementById('btn-download-inv').style.display = 'none';
+        document.getElementById('no-rows-msg').style.display = 'none';
+        // Hide table, show prompt
+        const wrapper = document.getElementById('inv-table-wrapper');
+        const prompt = document.getElementById('inv-search-prompt');
+        const heading = document.getElementById('inv-table-heading');
+        if (wrapper) wrapper.style.display = 'none';
+        if (prompt) prompt.style.display = '';
+        if (heading) heading.style.display = 'none';
+        // Reset all rows so next filter sees them
+        document.querySelectorAll('.inv-row').forEach(row => row.style.display = '');
+    }
+</script>
+{% endblock %}

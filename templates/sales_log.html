@@ -1,0 +1,551 @@
+{% extends "_layout.html" %}
+
+{% block content %}
+<div class="flex-between align-center mb-2">
+    <h1>Sales Log</h1>
+    <button onclick="openWalletModal()" class="btn btn-warning" style="font-weight: bold;">
+        💰 Wallet Balances ({{ wallet_map|length }})
+    </button>
+</div>
+
+<div class="dashboard-grid mb-2" style="grid-template-columns: 1fr 1fr;">
+    <div class="card" style="border-top: 5px solid var(--info);">
+        <h3 class="flex-between"><span>📅 Today</span><small class="text-muted">(IST)</small></h3>
+        <div class="stats-container" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+            <div class="stat-box" style="background:#e3f2fd; padding:5px; border-radius:5px; text-align:center;">
+                <small>Total</small>
+                <div style="font-weight:bold; color:var(--primary);">₹{{ "%.0f"|format(daily_stats.total) }}</div>
+            </div>
+            <div class="stat-box" style="background:#ffebee; padding:5px; border-radius:5px; text-align:center;">
+                <small>Credit</small>
+                <div style="font-weight:bold; color:var(--danger);">₹{{ "%.0f"|format(daily_stats.credit) }}</div>
+            </div>
+            <div class="stat-box" style="background:#e8f5e9; padding:5px; border-radius:5px; text-align:center;">
+                <small>Cash</small>
+                <div style="font-weight:bold; color:var(--success);">₹{{ "%.0f"|format(daily_stats.cash) }}</div>
+            </div>
+            <div class="stat-box" style="background:#fff3e0; padding:5px; border-radius:5px; text-align:center;">
+                <small>Online</small>
+                <div style="font-weight:bold; color:var(--warning-text);">₹{{ "%.0f"|format(daily_stats.online) }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="card" style="border-top: 5px solid var(--primary);">
+        <h3 class="flex-between" style="align-items:center; flex-wrap:wrap; gap:8px;">
+            <span>🗓️ <span id="monthly-card-label">This Month</span></span>
+            <input type="month" id="month-picker" value="{{ now_month }}" onchange="fetchMonthlyStats()"
+                style="border:1px solid #ddd; border-radius:6px; padding:4px 8px; font-size:0.85rem; cursor:pointer;">
+        </h3>
+        <div class="stats-container" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+            <div class="stat-box" style="background:#e3f2fd; padding:5px; border-radius:5px; text-align:center;">
+                <small>Total</small>
+                <div id="ms-total" style="font-weight:bold; color:var(--primary);">₹{{
+                    "%.0f"|format(monthly_stats.total) }}</div>
+            </div>
+            <div class="stat-box" style="background:#ffebee; padding:5px; border-radius:5px; text-align:center;">
+                <small>Credit</small>
+                <div id="ms-credit" style="font-weight:bold; color:var(--danger);">₹{{
+                    "%.0f"|format(monthly_stats.credit) }}</div>
+            </div>
+            <div class="stat-box" style="background:#e8f5e9; padding:5px; border-radius:5px; text-align:center;">
+                <small>Cash</small>
+                <div id="ms-cash" style="font-weight:bold; color:var(--success);">₹{{ "%.0f"|format(monthly_stats.cash)
+                    }}</div>
+            </div>
+            <div class="stat-box" style="background:#fff3e0; padding:5px; border-radius:5px; text-align:center;">
+                <small>Online</small>
+                <div id="ms-online" style="font-weight:bold; color:var(--warning-text);">₹{{
+                    "%.0f"|format(monthly_stats.online) }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-2" style="background: #f8f9fa;">
+    <div class="filter-bar" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;">
+
+        <div class="form-group mb-0" style="flex: 2; min-width: 200px;">
+            <label>🔎 Search Customer Name</label>
+            <input type="text" id="filter-name" placeholder="Type name..." onkeyup="filterNames()">
+        </div>
+
+        <div class="form-group mb-0" style="flex: 1; min-width: 150px;">
+            <label>Filter Status</label>
+            <select id="filter-status" onchange="applyFilters()">
+                <option value="all" {% if current_filter_status=='all' %}selected{% endif %}>Show All</option>
+                <option value="partial" {% if current_filter_status=='partial' %}selected{% endif %}>Partial / Pending
+                </option>
+                <option value="full_cash" {% if current_filter_status=='full_cash' %}selected{% endif %}>Full Payment
+                    (Cash)</option>
+                <option value="full_online" {% if current_filter_status=='full_online' %}selected{% endif %}>Full
+                    Payment (Online)</option>
+                <option value="received" {% if current_filter_status=='received' %}selected{% endif %}>Any Full Payment
+                </option>
+            </select>
+        </div>
+
+        <div class="form-group mb-0" style="flex: 1; min-width: 150px;">
+            <label>Filter Date</label>
+            <input type="date" id="filter-date" value="{{ current_filter_date or '' }}" onchange="applyFilters()"
+                style="width:100%; padding:10px; border:1px solid #ddd; border-radius:6px;">
+        </div>
+
+        <button class="btn btn-secondary" onclick="resetFilters()" style="height: 44px;">Reset</button>
+    </div>
+</div>
+
+
+
+<div class="card mt-2">
+    {% if not sales_by_date %}
+    <p class="text-muted">No sales have been recorded yet.</p>
+    {% else %}
+
+    {% for date, sales_list in sales_by_date.items() %}
+    <div class="date-group-wrapper">
+
+        <div class="sticky-date-header">
+            <h3>
+                <span class="date-badge">📅 {{ date }}</span>
+                <span class="count-badge" style="font-size: 0.9rem; font-weight: normal; color: #666;">({{
+                    sales_list|length }} Bills)</span>
+            </h3>
+        </div>
+
+        <div class="log-tree">
+            {% for bill_data in sales_list %}
+            {% set sales_id = bill_data.id %}
+
+            <details class="bill-item search-item" data-client="{{ bill_data.client_name|lower }}"
+                data-status="{{ bill_data.payment_status }}" data-cash="{{ bill_data.paid_cash }}"
+                data-online="{{ bill_data.paid_online }}">
+
+                <summary class="bill-summary">
+                    <div class="flex-between gap-15">
+                        <strong>Bill #{{ sales_id }}</strong>
+                        <span class="text-muted">{{ bill_data.client_name }}</span>
+                        <span
+                            class="status-badge {{ 'status-order-sent' if bill_data.order_status == 'Order Sent' else 'status-order-pending' }}">
+                            {{ bill_data.order_status }}
+                        </span>
+                        <span
+                            class="status-badge {{ 'status-payment-received' if bill_data.payment_status == 'Payment Received' else 'status-payment-not-received' }}">
+                            {{ bill_data.payment_status }}
+                        </span>
+                    </div>
+
+                    <div class="bill-actions flex-between gap-10">
+                        <div style="display: flex; align-items: center; gap: 5px;">
+                            <strong class="text-primary">₹{{ "%.2f"|format(bill_data.grand_total) }}</strong>
+
+                            {% if bill_data.payment_mode %}
+                            <span class="text-muted" style="font-size: 0.85rem; font-weight: normal;">
+                                ({{ bill_data.payment_mode }})
+                            </span>
+                            {% endif %}
+
+                            {% if bill_data.payment_status in ["Partial Payment", "Payment Not Received"] %}
+                            <span class="text-danger" style="font-size: 0.8rem; font-weight: bold;">
+                                (Due: ₹{{ "%.0f"|format(bill_data.grand_total - bill_data.paid_amount) }})
+                            </span>
+                            {% endif %}
+                        </div>
+                        {% if bill_data.payment_status != "Payment Received" %}
+                        <button class="btn btn-sm btn-success"
+                            onclick="openFullPayModal(this, '{{ sales_id }}', {{ bill_data.grand_total }}, {{ bill_data.paid_amount }})">✓
+                            Full Pay</button>
+                        {% endif %}
+                        <a href="{{ url_for('sales.edit_bill', sales_id=sales_id) }}"
+                            class="btn btn-sm btn-warning">Edit</a>
+                        <button class="btn btn-sm btn-danger"
+                            onclick="openDownloadModal('{{ sales_id }}')">Download</button>
+                    </div>
+                </summary>
+
+                <div class="bill-details">
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Category</th>
+                                    <th>Product</th>
+                                    <th>Qty</th>
+                                    <th>Unit</th>
+                                    <th>Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in bill_data['items'] %}
+                                <tr>
+                                    <td>{{ item['Category'] }}</td>
+                                    <td>{{ item['Product Name'] }}</td>
+                                    <td>{{ item['Qty Sold'] }}</td>
+                                    <td>{{ item['Unit'] }}</td>
+                                    <td>₹{{ "%.2f"|format(item['Total']) }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="status-manager">
+                        <form action="{{ url_for('sales.update_status') }}" method="POST" class="flex-between gap-10">
+                            <input type="hidden" name="sales_id" value="{{ sales_id }}">
+                            <input type="hidden" name="status_type" value="order">
+                            <label>Order:</label>
+                            {% if bill_data.order_status == 'Order Pending' %}
+                            <button type="submit" name="new_value" value="Order Sent"
+                                class="btn btn-sm btn-primary">Mark Sent</button>
+                            {% else %}
+                            <button type="submit" name="new_value" value="Order Pending"
+                                class="btn btn-sm btn-secondary">Mark Pending</button>
+                            {% endif %}
+                        </form>
+                        <div class="flex-between gap-10">
+                            <label>Payment:</label>
+                            <button class="btn btn-sm btn-success"
+                                onclick="openPaymentModal(this, '{{ sales_id }}', {{ bill_data.grand_total }})">Update
+                                Payment</button>
+                        </div>
+                    </div>
+                </div>
+            </details>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+</div>
+
+<div id="walletModal" class="custom-modal">
+    <div class="custom-modal-content">
+        <span class="close-modal" onclick="closeModal('walletModal')">&times;</span>
+        <h3>💰 Customer Wallets</h3>
+        <p class="text-muted mb-2">Customers with remaining balance</p>
+
+        <div class="table-responsive">
+            <table style="width:100%; border-collapse: collapse;">
+                <thead style="background: #f0f0f0;">
+                    <tr>
+                        <th style="padding:8px; border:1px solid #ddd;">Customer Name</th>
+                        <th style="padding:8px; border:1px solid #ddd;">Wallet Balance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for name, balance in wallet_map.items() %}
+                    <tr>
+                        <td style="padding:8px; border:1px solid #ddd;">{{ name }}</td>
+                        <td style="padding:8px; border:1px solid #ddd; font-weight:bold; color:var(--success);">₹{{
+                            "%.2f"|format(balance) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="2" class="text-center p-3">No customers have a wallet balance.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div id="downloadModal" class="custom-modal">
+    <div class="custom-modal-content">
+        <span class="close-modal" onclick="closeModal('downloadModal')">&times;</span>
+        <div class="text-center mb-2">
+            <h3>Select Invoice Format</h3>
+            <p>Bill #<span id="modal-bill-id"></span></p>
+        </div>
+        <div class="format-options">
+            <a href="#" id="btn-a4" class="format-card">
+                <div class="icon-circle">📄</div>
+                <strong>Regular PDF</strong>
+            </a>
+            <a href="#" id="btn-thermal" class="format-card">
+                <div class="icon-circle">🧾</div>
+                <strong>Thermal Slip</strong>
+            </a>
+        </div>
+    </div>
+</div>
+
+<div id="paymentModal" class="custom-modal">
+    <div class="custom-modal-content" style="max-width: 450px;">
+        <span class="close-modal" onclick="closeModal('paymentModal')">&times;</span>
+        <div class="text-center mb-2">
+            <h3>Record Payment</h3>
+            <p>Bill #<span id="pay-modal-bill-id"></span></p>
+
+            <div style="background: #f8f9fa; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+                <div
+                    style="display:flex; justify-content:space-between; margin-bottom: 5px; font-size: 0.9rem; border-bottom: 1px dashed #ddd; padding-bottom: 5px;">
+                    <span class="text-muted">Previous Payment:</span>
+                    <strong class="text-success" id="pay-modal-prev-paid">₹0.00</strong>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items: flex-end;">
+                    <span class="text-muted">Total Bill Amount:</span>
+                    <h2 class="text-primary" id="pay-modal-total-display" style="margin:0;"></h2>
+                </div>
+            </div>
+        </div>
+        <form action="{{ url_for('sales.update_status') }}" method="POST">
+            <input type="hidden" name="sales_id" id="payment-sales-id">
+            <input type="hidden" name="status_type" value="payment">
+            <input type="hidden" id="raw-bill-total">
+            <div class="dashboard-grid" style="grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div class="form-group">
+                    <label>Cash Received</label>
+                    <input type="number" step="0.01" name="cash_amount" id="inp-cash" value="0" oninput="calcChange()">
+                </div>
+                <div class="form-group">
+                    <label>Online Received</label>
+                    <input type="number" step="0.01" name="online_amount" id="inp-online" value="0"
+                        oninput="calcChange()">
+                </div>
+            </div>
+
+            <div id="calc-result-area"
+                style="text-align: center; margin-top: 15px; padding: 10px; border: 1px dashed #ccc; border-radius: 8px;">
+                <p style="margin:0; font-size: 0.9rem;">Balance Due</p>
+                <h3 id="lbl-balance" class="text-danger">₹0.00</h3>
+            </div>
+
+            <div id="underpayment-options"
+                style="display:none; margin-top: 15px; background: #fff3cd; padding: 15px; border-radius: 8px;">
+                <p style="color: #856404; font-weight: bold; margin-bottom: 10px;">
+                    Paying less by <span id="lbl-less-amount">₹0.00</span>
+                </p>
+                <div style="display: flex; gap: 10px; justify-content: center;">
+                    <label class="btn btn-sm btn-outline" style="cursor: pointer; flex: 1; background:white;">
+                        <input type="radio" name="underpayment_action" value="partial" checked>
+                        Keep as Due
+                    </label>
+                    <label class="btn btn-sm btn-outline" style="cursor: pointer; flex: 1; background:white;">
+                        <input type="radio" name="underpayment_action" value="settle">
+                        Settle Full
+                    </label>
+                </div>
+            </div>
+
+            <div id="overpayment-options"
+                style="display:none; margin-top: 15px; background: #e3f2fd; padding: 15px; border-radius: 8px;">
+                <p style="color: var(--primary); font-weight: bold; margin-bottom: 10px;">
+                    ⚠️ Customer paid extra! <br>
+                    Change: <span id="lbl-change-amount" style="font-size: 1.2rem;">₹0.00</span>
+                </p>
+                <div style="display: flex; gap: 10px; justify-content: center;">
+                    <label class="btn btn-sm btn-outline" style="cursor: pointer; flex: 1; background:white;">
+                        <input type="radio" name="overpayment_action" value="return" checked> Return Cash
+                    </label>
+                    <label class="btn btn-sm btn-outline" style="cursor: pointer; flex: 1; background:white;">
+                        <input type="radio" name="overpayment_action" value="credit"> Keep in Wallet
+                    </label>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-success w-100 mt-3">Settle Bill</button>
+        </form>
+    </div>
+</div>
+<script>
+    // --- MONTHLY STATS FILTER ---
+    function fetchMonthlyStats() {
+        const val = document.getElementById('month-picker').value; // "YYYY-MM"
+        if (!val) return;
+        const [year, month] = val.split('-');
+
+        // Update label nicely
+        const label = new Date(year, parseInt(month) - 1, 1)
+            .toLocaleString('default', { month: 'long', year: 'numeric' });
+        document.getElementById('monthly-card-label').textContent = label;
+
+        // Fetch stats from backend
+        fetch(`/sales_monthly_stats?month=${month}&year=${year}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { console.error(data.error); return; }
+                const fmt = v => '₹' + Math.round(v).toLocaleString('en-IN');
+                document.getElementById('ms-total').textContent = fmt(data.total);
+                document.getElementById('ms-credit').textContent = fmt(data.credit);
+                document.getElementById('ms-cash').textContent = fmt(data.cash);
+                document.getElementById('ms-online').textContent = fmt(data.online);
+            })
+            .catch(err => console.error('Monthly stats fetch error:', err));
+    }
+
+    // --- SERVER-SIDE FILTER LOGIC ---
+    function applyFilters() {
+        const status = document.getElementById('filter-status').value;
+        const date = document.getElementById('filter-date').value;
+
+        const params = new URLSearchParams();
+        if (status && status !== 'all') params.append('filter_status', status);
+        if (date) params.append('filter_date', date);
+
+        window.location.href = `?${params.toString()}`;
+    }
+
+    // Client-side name filter only (Visual)
+    function filterNames() {
+        const nameFilter = document.getElementById('filter-name').value.toLowerCase();
+        const dateGroups = document.querySelectorAll('.date-group-wrapper');
+
+        dateGroups.forEach(group => {
+            const items = group.querySelectorAll('.search-item');
+            let visibleCount = 0;
+            items.forEach(item => {
+                const clientName = item.getAttribute('data-client');
+                if (clientName.includes(nameFilter)) {
+                    item.style.display = 'block';
+                    visibleCount++;
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+            group.style.display = (visibleCount === 0) ? 'none' : 'block';
+        });
+    }
+
+    function resetFilters() {
+        // Clear all query params to reset to default view
+        window.location.href = window.location.pathname;
+    }
+
+    function openWalletModal() {
+        document.getElementById('walletModal').classList.add('active');
+    }
+
+    // --- EXISTING FUNCTIONS (Keep these) ---
+    function openDownloadModal(salesId) {
+        document.getElementById('modal-bill-id').textContent = salesId;
+        const baseUrl = "{{ url_for('pdf.download_bill', sales_id=0) }}".replace('/0', '/' + salesId);
+        document.getElementById('btn-a4').href = baseUrl + "?format=regular";
+        document.getElementById('btn-thermal').href = baseUrl + "?format=barcode";
+        document.getElementById('downloadModal').classList.add('active');
+    }
+
+    // --- QUICK FULL PAY (pre-fills remaining due, opens modal) ---
+    function openFullPayModal(btnElement, salesId, totalAmount, alreadyPaid) {
+        const remaining = totalAmount - alreadyPaid;
+
+        document.getElementById('pay-modal-bill-id').textContent = salesId;
+        document.getElementById('payment-sales-id').value = salesId;
+        document.getElementById('pay-modal-total-display').textContent = '₹' + totalAmount.toFixed(2);
+        document.getElementById('raw-bill-total').value = totalAmount;
+
+        const prevText = `₹${alreadyPaid.toFixed(2)} already paid`;
+        document.getElementById('pay-modal-prev-paid').textContent = prevText;
+
+        // Pre-fill remaining due as cash
+        document.getElementById('inp-cash').value = remaining.toFixed(2);
+        document.getElementById('inp-online').value = 0;
+
+        document.getElementById('overpayment-options').style.display = 'none';
+        document.getElementById('underpayment-options').style.display = 'none';
+        document.getElementById('calc-result-area').style.display = 'block';
+
+        calcChange();
+        document.getElementById('paymentModal').classList.add('active');
+    }
+
+    // --- OPEN PAYMENT MODAL ---
+    function openPaymentModal(btnElement, salesId, totalAmount) {
+        // 1. Find the parent row to get existing payment data
+        // The button is inside .status-manager -> .bill-details -> <details class="bill-item">
+        const billItem = btnElement.closest('.bill-item');
+
+        // 2. Read existing values from data attributes (default to 0 if missing)
+        const prevCash = parseFloat(billItem.getAttribute('data-cash')) || 0;
+        const prevOnline = parseFloat(billItem.getAttribute('data-online')) || 0;
+        const totalPrev = prevCash + prevOnline;
+
+        // 3. Update Modal Identifiers
+        document.getElementById('pay-modal-bill-id').textContent = salesId;
+        document.getElementById('payment-sales-id').value = salesId;
+
+        // 4. Update Header Visuals
+        document.getElementById('pay-modal-total-display').textContent = '₹' + totalAmount.toFixed(2);
+        document.getElementById('raw-bill-total').value = totalAmount; // Hidden input for calculation
+
+        // Show "Previous Payment" text
+        const prevText = `₹${totalPrev.toFixed(2)} (Cash: ${prevCash}, Online: ${prevOnline})`;
+        document.getElementById('pay-modal-prev-paid').textContent = prevText;
+
+        // 5. Pre-fill Inputs with Existing Values
+        // This allows you to easily edit the previous amount
+        document.getElementById('inp-cash').value = prevCash;
+        document.getElementById('inp-online').value = prevOnline;
+
+        // 6. Reset UI Sections (Hide all option boxes initially)
+        document.getElementById('overpayment-options').style.display = 'none';
+        document.getElementById('underpayment-options').style.display = 'none';
+        document.getElementById('calc-result-area').style.display = 'block';
+
+        // 7. Run Calculation & Open Modal
+        calcChange();
+        document.getElementById('paymentModal').classList.add('active');
+    }
+
+    // --- CALCULATE CHANGE & SHOW OPTIONS ---
+    function calcChange() {
+        const billTotal = parseFloat(document.getElementById('raw-bill-total').value) || 0;
+        const cash = parseFloat(document.getElementById('inp-cash').value) || 0;
+        const online = parseFloat(document.getElementById('inp-online').value) || 0;
+
+        const totalPaid = cash + online;
+        const difference = billTotal - totalPaid; // Positive = Due, Negative = Extra
+
+        // UI Elements
+        const lbl = document.getElementById('lbl-balance');
+        const resultArea = document.getElementById('calc-result-area');
+        const overpayDiv = document.getElementById('overpayment-options');
+        const underpayDiv = document.getElementById('underpayment-options');
+
+        const changeLbl = document.getElementById('lbl-change-amount');
+        const lessLbl = document.getElementById('lbl-less-amount');
+
+        // LOGIC BRANCHING
+        if (difference > 0.01) {
+            // --- CASE 1: UNDERPAYMENT (Paying Less) ---
+            lbl.textContent = '₹' + difference.toFixed(2);
+            lbl.className = 'text-danger';
+            lbl.previousElementSibling.textContent = "Balance Due";
+
+            // Hide Standard, Show Underpayment Options
+            resultArea.style.display = 'none';
+            underpayDiv.style.display = 'block';
+            overpayDiv.style.display = 'none';
+
+            // Set text inside the yellow box
+            lessLbl.textContent = '₹' + difference.toFixed(2);
+
+        } else if (difference < -0.01) {
+            // --- CASE 2: OVERPAYMENT (Paying Extra) ---
+            const extra = Math.abs(difference);
+
+            // Hide Standard, Show Overpayment Options
+            resultArea.style.display = 'none';
+            underpayDiv.style.display = 'none';
+            overpayDiv.style.display = 'block';
+
+            // Set text inside the blue box
+            changeLbl.textContent = '₹' + extra.toFixed(2);
+
+        } else {
+            // --- CASE 3: EXACT PAYMENT ---
+            lbl.textContent = '₹0.00';
+            lbl.className = 'text-success';
+            lbl.previousElementSibling.textContent = "Settled";
+
+            // Show Standard only
+            resultArea.style.display = 'block';
+            underpayDiv.style.display = 'none';
+            overpayDiv.style.display = 'none';
+        }
+    }
+
+    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+    window.onclick = function (e) { if (e.target.classList.contains('custom-modal')) e.target.classList.remove('active'); }
+</script>
+{% endblock %}

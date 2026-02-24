@@ -1,0 +1,611 @@
+{% extends "_layout.html" %}
+
+{% block content %}
+<h1>Record a New Sale</h1>
+
+{% if not selected_client %}
+<!-- STEP 1: SELECT CLIENT -->
+<div class="card" style="max-width: 1170px; margin: 0 auto;">
+    <h2>Step 1: Select Client</h2>
+
+    <!-- RESUME DRAFT NOTIFICATION AREA -->
+    <div id="draft-notification"
+        style="display:none; background-color: #fff3cd; color: #856404; padding: 15px; border: 1px solid #ffeeba; border-radius: 8px; margin-bottom: 20px;">
+        <strong>⚠️ Unsaved Bill Found!</strong><br>
+        You have an unfinished bill for <strong id="draft-client-name"></strong>.
+        <div style="margin-top: 10px;">
+            <a id="btn-resume-draft" href="#" class="btn btn-sm btn-primary">Resume Draft</a>
+            <button onclick="discardDraft()" class="btn btn-sm btn-danger">Discard</button>
+        </div>
+    </div>
+
+    <form method="GET" action="{{  url_for('sales.sales_page') }}">
+        <div class="flex-between align-end gap-15 mb-2">
+            <div class="form-group w-100">
+                <label>Client</label>
+                <select name="client_name" id="client_dropdown" required>
+                    <option value="" disabled selected>-- Select a client --</option>
+                    {% for client in client_list %}
+                    <option value="{{ client }}">{{ client }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <!-- BALANCE NOTIFICATION -->
+            <div id="balance_notification"
+                style="display:none; padding: 10px; margin-bottom: 10px; border-radius: 6px; font-weight: bold;"></div>
+            <button type="button" class="btn btn-secondary" onclick="openModal('clientModal')"
+                style="height: 47px; width: 50px;">+</button>
+        </div>
+        <button type="submit" class="btn btn-primary w-100">Start Sale</button>
+    </form>
+</div>
+
+
+
+<!-- CLIENT MODAL -->
+<div id="clientModal" class="custom-modal">
+    <div class="custom-modal-content">
+        <span class="close-modal" onclick="closeModal('clientModal')">&times;</span>
+        <h3>Add New Customer</h3>
+        <form action="{{ url_for('sales.add_client') }}" method="POST">
+            <div class="form-group">
+                <label>Customer Name</label>
+                <input type="text" name="new_client_name" required>
+            </div>
+            <!-- ADDED PHONE INPUT -->
+            <div class="form-group">
+                <label>Phone Number</label>
+                <input type="text" name="new_client_phone" placeholder="Optional">
+            </div>
+            <button type="submit" class="btn btn-success w-100 mt-2">Save Customer</button>
+        </form>
+    </div>
+</div>
+
+{% else %}
+<!-- STEP 2: CART & BILLING -->
+<div class="card">
+    <div class="flex-between mb-2">
+        <h2>Sale: <strong class="text-primary">{{ selected_client }}</strong> <span id="header_balance_msg"
+                style="font-size: 0.6em; margin-left: 15px; vertical-align: middle;"></span></h2>
+        <div style="display:flex; gap:10px;">
+            <button onclick="discardDraft()" class="btn btn-sm btn-danger">Clear Draft</button>
+            <a href="{{ url_for('sales.sales_page') }}" class="btn btn-sm btn-secondary">Change Client</a>
+        </div>
+    </div>
+
+    <!-- DATA FIX: Inject JSON directly into JS variable to prevent attribute parsing errors -->
+    <script>
+        window.SALES_PRODUCT_DATA = {{ all_products_json | safe }};
+        window.CLIENT_BALANCES = {{ client_balances | tojson | safe }};
+    </script>
+
+    <form method="POST" action="{{ url_for('sales.process_sale') }}" id="sales-form">
+        <input type="hidden" name="client_name" value="{{ selected_client }}">
+
+        <!-- POS SECTION -->
+        <fieldset class="pos-section">
+            <legend>Scan / Add Products</legend>
+
+            <div class="flex-between align-end gap-15 mb-2">
+                <div class="form-group search-container" style="flex: 3;">
+                    <label>Scan Barcode / Search</label>
+                    <input type="text" id="product_search" placeholder="Type name or scan barcode..." autocomplete="off"
+                        autofocus>
+                    <div id="search_results" class="search-dropdown"></div>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label>Qty</label>
+                    <input type="number" id="qty_input" min="1" value="1">
+                </div>
+            </div>
+
+            <!-- Preview Box -->
+            <div id="selected_item_info" class="selection-preview">
+                <strong>Selected:</strong> <span id="sel_name" class="text-primary"></span><br>
+                <small>Price: ₹<span id="sel_price"></span> | Unit: <span id="sel_unit"></span> | Stock: <span
+                        id="sel_stock"></span></small>
+
+                <div id="variation-selector" class="variation-box">
+                    <label id="variation-label" class="font-bold">Select Variation:</label>
+                    <select id="variation_input" class="w-100 mt-1"></select>
+                </div>
+
+                <div class="form-group mt-2">
+                    <input type="text" id="sel_desc" placeholder="Add description (optional)..."
+                        style="font-size: 0.9rem;">
+                </div>
+            </div>
+
+            <button type="button" id="add-to-cart-btn" class="btn btn-primary w-100">Add to Cart</button>
+
+            <div class="or-separator">
+                <hr>
+                <span class="or-text">OR</span>
+            </div>
+
+            <button type="button" id="toggle-manual-btn" class="btn btn-secondary w-100">Add Manual Item</button>
+
+            <!-- Manual Entry -->
+            <div id="manual-entry-section" class="manual-entry">
+                <h4>Custom Item Details</h4>
+                <div class="row">
+                    <div class="col-12 col-md-6 form-group">
+                        <label>Product Name</label>
+                        <input type="text" id="manual_name" class="form-control">
+                    </div>
+                    <div class="col-12 col-md-6 form-group">
+                        <label>Price (₹)</label>
+                        <input type="number" id="manual_price" step="0.01" class="form-control">
+                    </div>
+                    <div class="col-12 col-md-4 form-group">
+                        <label>Unit</label>
+                        <select id="manual_unit" class="form-control">
+                            <option>Nos.</option>
+                            <option>Pcs</option>
+                            <option>Kg</option>
+                            <option>Ltr</option>
+                            <option>can</option>
+                            <option>sq.ft</option>
+                            <option>Roll</option>
+                            <option>Pair</option>
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-4 form-group">
+                        <label>GST %</label>
+                        <input type="number" id="manual_gst" value="0" class="form-control">
+                    </div>
+                    <div class="col-12 col-md-4 form-group">
+                        <label>Qty</label>
+                        <input type="number" id="manual_qty" value="1" class="form-control">
+                    </div>
+                    <div class="col-12 form-group">
+                        <label>Description (Opt)</label>
+                        <input type="text" id="manual_desc" class="form-control">
+                    </div>
+                </div>
+                <button type="button" id="add-manual-btn" class="btn btn-success w-100 mt-2">Add Custom Item</button>
+            </div>
+        </fieldset>
+
+        <!-- CART -->
+        <h3 class="mt-2">Cart <span id="auto-save-indicator"
+                style="font-size: 0.8rem; color: var(--success); display: none; margin-left: 10px;">(Auto-saved)</span>
+        </h3>
+        <div class="table-responsive">
+            <table id="sales-cart-table">
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th style="min-width: 200px;">Product / Desc</th>
+                        <th>Qty</th>
+                        <th>Unit</th>
+                        <th>Price</th>
+                        <th id="gst-col-header">GST %</th>
+                        <th>Total</th>
+                        <th class="col-action">X</th>
+                    </tr>
+                </thead>
+                <tbody id="cart-table-body"></tbody>
+            </table>
+        </div>
+
+        <p id="empty-cart-msg" class="text-center text-muted p-3">Your cart is empty.</p>
+        <div class="text-right mt-2 mb-2">
+            <h3>Total: <span id="grand-total-display" class="text-primary">₹0.00</span></h3>
+        </div>
+
+        <input type="hidden" name="sales_cart" id="sales_cart_input">
+        <button type="submit" id="record-sale-btn" class="btn btn-success w-100" disabled
+            title="Add at least one item to the cart">Record Sale</button>
+    </form>
+</div>
+{% endif %}
+
+<!-- PRICE CHOICE MODAL -->
+<div id="priceChoiceModal" class="custom-modal" style="z-index: 3000;">
+    <div class="custom-modal-content" style="max-width: 400px; text-align: center;">
+        <h3 class="text-primary">Price History Found!</h3>
+        <p>You sold <strong id="pc-product-name"></strong> to this customer on <span id="pc-last-date"
+                class="font-bold"></span>.</p>
+
+        <div class="dashboard-grid" style="grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px;">
+            <div onclick="confirmPriceChoice('current')"
+                style="border: 2px solid #eee; padding: 15px; border-radius: 8px; cursor: pointer; transition: 0.2s;"
+                onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='#eee'">
+                <div class="text-muted">Current List Price</div>
+                <h2 class="text-primary" id="pc-current-price"></h2>
+            </div>
+
+            <div onclick="confirmPriceChoice('last')"
+                style="border: 2px solid #ffd700; background: #fffbe6; padding: 15px; border-radius: 8px; cursor: pointer; transition: 0.2s;"
+                onmouseover="this.style.borderColor='orange'" onmouseout="this.style.borderColor='#ffd700'">
+                <div class="text-muted">Last Sold Price</div>
+                <h2 class="text-warning" id="pc-last-price"></h2>
+            </div>
+        </div>
+        <p class="text-muted mt-2" style="font-size: 0.8rem;">Click a box to select that price.</p>
+    </div>
+</div>
+<script>
+    // --- GLOBAL VARIABLES ---
+    let allProducts = [];
+    let salesCart = [];
+    let selectedProduct = null;
+
+    // Variables for the Price History Decision
+    let tempCurrentPrice = 0;
+    let tempLastPrice = 0;
+
+    // --- HELPER FUNCTIONS ---
+    function openModal(id) { document.getElementById(id).classList.add('active'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+    // --- MAIN INITIALIZATION ---
+    document.addEventListener("DOMContentLoaded", function () {
+
+        // 1. Load Product Data from Python
+        if (window.SALES_PRODUCT_DATA) {
+            if (Array.isArray(window.SALES_PRODUCT_DATA)) {
+                allProducts = window.SALES_PRODUCT_DATA;
+            } else {
+                // Fallback for object format
+                Object.values(window.SALES_PRODUCT_DATA).forEach(catList => {
+                    allProducts = allProducts.concat(catList);
+                });
+            }
+        }
+
+        // --- DOM ELEMENTS ---
+        const searchInput = document.getElementById('product_search');
+        const resultsBox = document.getElementById('search_results');
+        const addBtn = document.getElementById('add-to-cart-btn');
+        const qtyInput = document.getElementById('qty_input');
+
+        const selInfo = document.getElementById('selected_item_info');
+        const varSelector = document.getElementById('variation-selector');
+        const varInput = document.getElementById('variation_input');
+        const descInput = document.getElementById('sel_desc');
+
+        // --- SEARCH LOGIC ---
+        if (searchInput) {
+            searchInput.addEventListener('input', function () {
+                const term = this.value.toLowerCase();
+                resultsBox.innerHTML = '';
+                if (term.length < 1) { resultsBox.style.display = 'none'; return; }
+
+                const matches = allProducts.filter(p => p.name.toLowerCase().includes(term));
+
+                if (matches.length > 0) {
+                    resultsBox.style.display = 'block';
+                    matches.forEach(p => {
+                        const div = document.createElement('div');
+                        div.className = 'search-item';
+
+                        let stockWarning = '';
+                        if (p.quantity <= 0) stockWarning = '<span class="text-danger font-bold" style="font-size:0.85rem; margin-left:8px;">(Out)</span>';
+                        else if (p.quantity < p.min_stock) stockWarning = '<span class="text-warning font-bold" style="font-size:0.85rem; margin-left:8px;">(Low)</span>';
+
+                        div.innerHTML = `<strong>${p.name}</strong> ${stockWarning} <br><small class="text-muted">(${p.category})</small>`;
+
+                        // CLICK: Trigger Price Check
+                        div.onclick = () => checkPriceAndSelect(p);
+
+                        resultsBox.appendChild(div);
+                    });
+                } else {
+                    resultsBox.style.display = 'none';
+                }
+            });
+
+            // Barcode Enter Key
+            searchInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const scannedCode = this.value.trim();
+                    const found = allProducts.find(p => p.barcode === scannedCode);
+                    if (found) checkPriceAndSelect(found);
+                }
+            });
+        }
+
+        // Close search on outside click
+        document.addEventListener('click', function (e) {
+            if (searchInput && e.target !== searchInput && e.target.parentNode !== resultsBox) {
+                resultsBox.style.display = 'none';
+            }
+        });
+
+        // --- API CHECK FOR PRICE HISTORY ---
+        window.checkPriceAndSelect = function (product) {
+            const clientName = "{{ selected_client }}";
+
+            // If manual / no client, just select normal price
+            if (!clientName) {
+                selectProduct(product, product.mrp);
+                return;
+            }
+
+            // Call Backend API
+            fetch(`/get_last_sale_price?client_name=${encodeURIComponent(clientName)}&product_name=${encodeURIComponent(product.name)}`)
+                .then(res => res.json())
+                .then(data => {
+                    // If history found AND price is different
+                    if (data.found && Math.abs(data.price - product.mrp) > 0.01) {
+                        tempCurrentPrice = product.mrp;
+                        tempLastPrice = data.price;
+                        selectedProduct = product; // Save for modal callback
+
+                        // Fill Modal Data
+                        document.getElementById('pc-product-name').textContent = data.sold_name;
+                        document.getElementById('pc-last-date').textContent = data.date;
+                        document.getElementById('pc-current-price').textContent = '₹' + tempCurrentPrice.toFixed(2);
+                        document.getElementById('pc-last-price').textContent = '₹' + tempLastPrice.toFixed(2);
+
+                        // Show Modal
+                        document.getElementById('priceChoiceModal').classList.add('active');
+                    } else {
+                        // No interesting history, select normally
+                        selectProduct(product, product.mrp);
+                    }
+                })
+                .catch(err => {
+                    console.error("Price check failed", err);
+                    selectProduct(product, product.mrp); // Fail safe
+                });
+        };
+
+        // --- CALLED BY MODAL CHOICES ---
+        window.confirmPriceChoice = function (choice) {
+            document.getElementById('priceChoiceModal').classList.remove('active');
+            const finalPrice = (choice === 'last') ? tempLastPrice : tempCurrentPrice;
+            selectProduct(selectedProduct, finalPrice);
+        };
+
+        // --- SELECT PRODUCT (UI UPDATE) ---
+        function selectProduct(product, effectivePrice) {
+            selectedProduct = product;
+
+            // 1. Update Search Box & Hide Results
+            if (searchInput) searchInput.value = product.name;
+            if (resultsBox) resultsBox.style.display = 'none';
+
+            // 2. Show Preview Box
+            if (selInfo) selInfo.style.display = 'block';
+
+            document.getElementById('sel_name').textContent = product.name;
+            document.getElementById('sel_unit').textContent = product.unit;
+
+            // 3. Set Price (Visible text + Data for later)
+            document.getElementById('sel_price').textContent = effectivePrice;
+
+            // 4. Stock Indicator
+            const stockSpan = document.getElementById('sel_stock');
+            stockSpan.textContent = product.quantity;
+            if (product.quantity <= 0) stockSpan.className = 'text-danger font-bold';
+            else if (product.quantity < product.min_stock) stockSpan.className = 'text-warning font-bold';
+            else stockSpan.className = 'text-success';
+
+            // 5. Variations
+            if (product.has_sub) {
+                varSelector.style.display = 'block';
+                document.getElementById('variation-label').textContent = `Select ${product.sub_type}:`;
+                varInput.innerHTML = '';
+                product.sub_opts.forEach(opt => {
+                    const o = document.createElement('option');
+                    o.value = opt.trim();
+                    o.text = opt.trim();
+                    varInput.appendChild(o);
+                });
+            } else {
+                varSelector.style.display = 'none';
+            }
+
+            // 6. Reset Qty and Focus
+            if (descInput) descInput.value = "";
+            qtyInput.value = 1;
+            qtyInput.focus();
+        }
+
+        // --- ADD TO CART BUTTON CLICK ---
+        if (addBtn) {
+            addBtn.addEventListener('click', function () {
+                if (!selectedProduct) { alert("Please scan or select a product."); return; }
+
+                const qty = parseInt(qtyInput.value);
+                if (qty <= 0) { alert("Qty must be > 0"); return; }
+
+                // READ THE CHOSEN PRICE FROM THE UI DISPLAY
+                const finalPrice = parseFloat(document.getElementById('sel_price').textContent);
+
+                let variation = null;
+                if (selectedProduct.has_sub) variation = varInput.value;
+                const desc = descInput.value;
+
+                // Call internal add function
+                addToCart(selectedProduct, qty, variation, desc, finalPrice);
+
+                // Reset UI for next item
+                searchInput.value = '';
+                qtyInput.value = 1;
+                selectedProduct = null;
+                selInfo.style.display = 'none';
+                searchInput.focus();
+            });
+        }
+
+        // --- CORE ADD FUNCTION ---
+        function addToCart(product, qty, variation, description, overridePrice) {
+            let itemName = product.name;
+
+            // Decide Price (Override from history OR standard MRP)
+            const priceToUse = (overridePrice !== undefined) ? overridePrice : product.mrp;
+
+            const uniqueId = product.id + (variation ? `-${variation}` : '');
+
+            // Check if same product AND same price exists in cart
+            const existingItem = salesCart.find(item => item.uniqueId === uniqueId && item.mrp === priceToUse);
+
+            if (existingItem) {
+                existingItem.qty += qty;
+                existingItem.total = existingItem.qty * existingItem.mrp * (1 + (existingItem.gst / 100));
+            } else {
+                const total = qty * priceToUse;
+                salesCart.push({
+                    uniqueId: uniqueId,
+                    id: product.id,
+                    category: product.category,
+                    name: product.name,
+                    variation: variation,
+                    description: description || "",
+                    qty: qty,
+                    unit: product.unit,
+                    mrp: priceToUse,
+                    total: total,
+                    gst: 0
+                });
+            }
+            renderCart();
+        }
+
+        // --- RENDER CART TABLE ---
+        const cartBody = document.getElementById('cart-table-body');
+        const emptyMsg = document.getElementById('empty-cart-msg');
+        const totalDisp = document.getElementById('grand-total-display');
+        const inputStore = document.getElementById('sales_cart_input');
+
+        function renderCart() {
+            if (!cartBody) return;
+            cartBody.innerHTML = '';
+            let gTotal = 0;
+
+            // Check if any item has GST > 0
+            const hasGST = salesCart.some(item => (item.gst || 0) > 0);
+            const gstHeader = document.getElementById('gst-col-header');
+            if (gstHeader) gstHeader.style.display = hasGST ? '' : 'none';
+
+            if (salesCart.length === 0) {
+                emptyMsg.style.display = 'block';
+            } else {
+                emptyMsg.style.display = 'none';
+                salesCart.forEach((item, index) => {
+                    const row = document.createElement('tr');
+                    let dName = item.name + (item.variation ? ` <span class="text-primary">(${item.variation})</span>` : '');
+
+                    row.innerHTML = `
+                        <td>${item.category}</td>
+                        <td>
+                            <strong>${dName}</strong><br>
+                            <input type="text" class="desc-edit input-sm" data-idx="${index}" value="${item.description}" placeholder="Description" style="width:100%; border:none; border-bottom:1px solid #eee; font-size:0.8rem; color:#666;">
+                        </td>
+                        <td><input type="number" class="qty-edit input-sm" data-idx="${index}" value="${item.qty}" min="1" style="width:60px;"></td>
+                        <td>${item.unit}</td>
+                        <td><input type="number" class="price-edit input-sm" data-idx="${index}" value="${item.mrp}" step="0.01" style="width:80px;"></td>
+                        <td style="display:${hasGST ? '' : 'none'}"><input type="number" class="gst-edit input-sm" data-idx="${index}" value="${item.gst}" style="width:60px;"></td>
+                        <td>₹${item.total.toFixed(2)}</td>
+                        <td><button type="button" class="btn-remove" onclick="removeItem(${index})">X</button></td>
+                    `;
+                    cartBody.appendChild(row);
+                    gTotal += item.total;
+                });
+            }
+            if (totalDisp) totalDisp.textContent = '₹' + gTotal.toFixed(2);
+            if (inputStore) inputStore.value = JSON.stringify(salesCart);
+
+            // Enable/disable submit button based on cart
+            const recordBtn = document.getElementById('record-sale-btn');
+            if (recordBtn) recordBtn.disabled = salesCart.length === 0;
+        }
+
+        window.removeItem = function (index) {
+            salesCart.splice(index, 1);
+            renderCart();
+        }
+
+        // --- MANUAL ENTRY ---
+        const toggleManualBtn = document.getElementById('toggle-manual-btn');
+        const manualSection = document.getElementById('manual-entry-section');
+        const addManualBtn = document.getElementById('add-manual-btn');
+
+        if (toggleManualBtn) {
+            toggleManualBtn.addEventListener('click', function () {
+                manualSection.style.display = manualSection.style.display === 'none' ? 'block' : 'none';
+                this.textContent = manualSection.style.display === 'block' ? 'Hide Manual Entry' : 'Add Manual Item';
+            });
+        }
+
+        if (addManualBtn) {
+            addManualBtn.addEventListener('click', function () {
+                const name = document.getElementById('manual_name').value;
+                const price = parseFloat(document.getElementById('manual_price').value);
+                const qty = parseInt(document.getElementById('manual_qty').value);
+                const unit = document.getElementById('manual_unit').value;
+                const gst = parseFloat(document.getElementById('manual_gst').value) || 0;
+                const desc = document.getElementById('manual_desc').value;
+
+                if (!name || isNaN(price)) { alert("Check details"); return; }
+
+                salesCart.push({
+                    uniqueId: 'man-' + Date.now(),
+                    id: null,
+                    category: 'Manual',
+                    name: name,
+                    variation: null,
+                    description: desc,
+                    qty: qty,
+                    unit: unit,
+                    mrp: price,
+                    total: (price * qty) * (1 + gst / 100),
+                    gst: gst
+                });
+                renderCart();
+                manualSection.style.display = 'none';
+            });
+        }
+
+        // --- CART INLINE EDITING ---
+        if (cartBody) {
+            cartBody.addEventListener('change', function (e) {
+                const idx = e.target.dataset.idx;
+                if (idx === undefined) return;
+                const item = salesCart[idx];
+
+                if (e.target.classList.contains('desc-edit')) item.description = e.target.value;
+                if (e.target.classList.contains('qty-edit')) {
+                    const v = parseInt(e.target.value);
+                    item.qty = (v > 0) ? v : 1;
+                }
+                if (e.target.classList.contains('price-edit')) item.mrp = parseFloat(e.target.value) || 0;
+                if (e.target.classList.contains('gst-edit')) item.gst = parseFloat(e.target.value) || 0;
+
+                item.total = item.qty * item.mrp * (1 + item.gst / 100);
+
+                if (!e.target.classList.contains('desc-edit')) renderCart();
+            });
+        }
+        // --- SMART ENTER KEY LOGIC ---
+        // 1. Add to Cart on Enter in Inputs
+        [qtyInput, descInput, varInput].forEach(input => {
+            if (!input) return;
+            input.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addBtn.click();
+                }
+            });
+        });
+
+        // 2. Submit Bill on Enter in Empty Search
+        if (searchInput) {
+            searchInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' && this.value.trim() === '') {
+                    e.preventDefault();
+                    // Optional confirmation
+                    // if(confirm("Submit Bill?")) 
+                    document.getElementById('sales-form').submit();
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}
