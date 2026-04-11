@@ -9,8 +9,10 @@
 
     <!-- DATA FIX: Inject JSON directly into JS variable, same as sales.html -->
     <script>
-        window.EDIT_PRODUCT_DATA = {{ product_catalog_json | safe }};
+        window.EDIT_PRODUCT_DATA   = {{ product_catalog_json | safe }};
         window.EXISTING_BILL_ITEMS = {{ bill["items"] | tojson | safe }};
+        // Inject the bill's real client name (may contain " - phone") for last-price lookup
+        window.BILL_CLIENT_NAME    = {{ bill.client_name | tojson }};
     </script>
 
     <form method="POST" action="{{ url_for('sales.process_edit_sale') }}">
@@ -20,7 +22,10 @@
             <label>Client Name</label>
             <select name="client_name" required>
                 {% for client in client_list %}
-                <option value="{{ client }}" {% if client==bill.client_name %}selected{% endif %}>{{ client }}</option>
+                <option value="{{ client }}"
+                    {% if client == bill.client_name or bill.client_name.startswith(client ~ ' - ') %}selected{% endif %}>
+                    {{ client }}
+                </option>
                 {% endfor %}
             </select>
         </div>
@@ -137,6 +142,32 @@
     </form>
 </div>
 
+<!-- PRICE CHOICE MODAL -->
+<div id="priceChoiceModal" class="custom-modal" style="z-index: 3000;">
+    <div class="custom-modal-content" style="max-width: 400px; text-align: center;">
+        <h3 class="text-primary">Price History Found!</h3>
+        <p>You sold <strong id="pc-product-name"></strong> to this customer on <span id="pc-last-date"
+                class="font-bold"></span>.</p>
+
+        <div class="dashboard-grid" style="grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px;">
+            <div onclick="confirmPriceChoice('current')"
+                style="border: 2px solid #eee; padding: 15px; border-radius: 8px; cursor: pointer; transition: 0.2s;"
+                onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='#eee'">
+                <div class="text-muted">Standard / List Price</div>
+                <h2 class="text-primary" id="pc-current-price"></h2>
+            </div>
+
+            <div onclick="confirmPriceChoice('last')"
+                style="border: 2px solid #ffd700; background: #fffbe6; padding: 15px; border-radius: 8px; cursor: pointer; transition: 0.2s;"
+                onmouseover="this.style.borderColor='orange'" onmouseout="this.style.borderColor='#ffd700'">
+                <div class="text-muted" id="pc-client-label">Price Last Given</div>
+                <h2 class="text-warning" id="pc-last-price"></h2>
+            </div>
+        </div>
+        <p class="text-muted mt-2" style="font-size: 0.8rem;">Click a box to select the price you want to use.</p>
+    </div>
+</div>
+
 <script>
     document.addEventListener("DOMContentLoaded", function () {
         // 1. Initialize Product Data
@@ -194,8 +225,64 @@
         const inputStore = document.getElementById('sales_cart_input');
 
         let selectedProduct = null;
+        let tempCurrentPrice = 0;
+        let tempLastPrice = 0;
 
         // --- FUNCTIONS ---
+        
+        window.checkPriceAndSelect = function (product) {
+            // Use the bill's stored client name as primary — more reliable than reading the
+            // dropdown which may not pre-select correctly when name contains " - phone"
+            const clientSelect = document.querySelector('select[name="client_name"]');
+            const clientName = window.BILL_CLIENT_NAME || (clientSelect ? clientSelect.value : '');
+
+            // Step 1: fetch FULL product details (mrp, stock, gst etc.) — catalog only has name/id
+            fetch(`/get_product_details/${product.id}`)
+                .then(res => res.json())
+                .then(fullProduct => {
+                    const enriched = Object.assign({}, product, fullProduct);
+
+                    if (!clientName) {
+                        selectProduct(enriched, enriched.mrp);
+                        return;
+                    }
+
+                    // Step 2: check price history with enriched product
+                    fetch(`/get_last_sale_price?client_name=${encodeURIComponent(clientName)}&product_name=${encodeURIComponent(enriched.name)}&_=${Date.now()}`)
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.found && Math.abs(data.price - enriched.mrp) > 0.01) {
+                                tempCurrentPrice = enriched.mrp;
+                                tempLastPrice = data.price;
+                                selectedProduct = enriched;
+
+                                document.getElementById('pc-product-name').textContent = data.sold_name;
+                                document.getElementById('pc-last-date').textContent = data.date;
+                                document.getElementById('pc-current-price').textContent = '\u20b9' + (tempCurrentPrice || 0).toFixed(2);
+                                document.getElementById('pc-last-price').textContent = '\u20b9' + (tempLastPrice || 0).toFixed(2);
+
+                                let baseName = clientName.split(' - ')[0].trim();
+                                let clientLabel = document.getElementById('pc-client-label');
+                                if (clientLabel) clientLabel.textContent = `Price Given to ${baseName}`;
+
+                                document.getElementById('priceChoiceModal').classList.add('active');
+                            } else {
+                                selectProduct(enriched, enriched.mrp);
+                            }
+                        })
+                        .catch(() => selectProduct(enriched, enriched.mrp));
+                })
+                .catch(err => {
+                    console.error('Product detail fetch failed', err);
+                    alert('Could not load product details. Please try again.');
+                });
+        };
+
+        window.confirmPriceChoice = function (choice) {
+            document.getElementById('priceChoiceModal').classList.remove('active');
+            const finalPrice = (choice === 'last') ? tempLastPrice : tempCurrentPrice;
+            selectProduct(selectedProduct, finalPrice);
+        };
 
         function renderCart() {
             cartBody.innerHTML = '';
@@ -230,19 +317,22 @@
             inputStore.value = JSON.stringify(salesCart);
         }
 
-        function addToCart(product, qty, variation, description) {
+        function addToCart(product, qty, variation, description, overridePrice) {
             let itemName = product.name;
             if (variation) itemName += ` - ${variation}`;
 
-            // Unique ID logic
+            // NaN-safe: only use override if it is a real number
+            const priceToUse = (overridePrice !== undefined && overridePrice !== null && !isNaN(Number(overridePrice)))
+                ? Number(overridePrice)
+                : (product.mrp || 0);
             const uniqueId = itemName;
-            const existingItem = salesCart.find(item => item.name === product.name && item.variation == variation);
+            const existingItem = salesCart.find(item => item.name === product.name && item.variation == variation && item.mrp === priceToUse);
 
             if (existingItem) {
                 existingItem.qty += qty;
                 existingItem.total = existingItem.qty * existingItem.mrp * (1 + (existingItem.gst / 100));
             } else {
-                const total = qty * product.mrp;
+                const total = qty * priceToUse;
                 salesCart.push({
                     uniqueId: uniqueId,
                     id: product.id,
@@ -252,7 +342,7 @@
                     description: description || "",
                     qty: qty,
                     unit: product.unit,
-                    mrp: product.mrp,
+                    mrp: priceToUse,
                     total: total,
                     gst: 0
                 });
@@ -260,14 +350,16 @@
             renderCart();
         }
 
-        function selectProduct(product) {
+        function selectProduct(product, effectivePrice) {
             selectedProduct = product;
             searchInput.value = product.name;
             resultsBox.style.display = 'none';
 
             selInfo.style.display = 'block';
             document.getElementById('sel_name').textContent = product.name;
-            document.getElementById('sel_price').textContent = product.mrp;
+            // Set Price — guard against null/undefined so textContent is never "null"
+            const safePrice = (effectivePrice != null && !isNaN(Number(effectivePrice))) ? effectivePrice : (product.mrp || 0);
+            document.getElementById('sel_price').textContent = safePrice;
             document.getElementById('sel_unit').textContent = product.unit;
 
             const stockSpan = document.getElementById('sel_stock');
@@ -317,7 +409,7 @@
                     const div = document.createElement('div');
                     div.className = 'search-item';
                     div.innerHTML = `<strong>${p.name}</strong> <small>(${p.category})</small>`;
-                    div.onclick = () => selectProduct(p);
+                    div.onclick = () => checkPriceAndSelect(p);
                     resultsBox.appendChild(div);
                 });
             } else {
@@ -334,7 +426,11 @@
             let variation = null;
             if (selectedProduct.has_sub && varInput.value !== "") variation = varInput.value;
 
-            addToCart(selectedProduct, qty, variation, descInput.value);
+            // READ PRICE — fallback to selectedProduct.mrp if DOM value is NaN
+            let finalPrice = parseFloat(document.getElementById('sel_price').textContent);
+            if (isNaN(finalPrice)) finalPrice = selectedProduct.mrp || 0;
+
+            addToCart(selectedProduct, qty, variation, descInput.value, finalPrice);
 
             searchInput.value = '';
             qtyInput.value = 1;

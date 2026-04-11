@@ -7,3 +7,5 @@ instance/
 *.db
 *.sqlite3
 .DS_Store
+.vscode/
+07C50B00

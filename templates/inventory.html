@@ -99,7 +99,7 @@
             </thead>
             <tbody>
                 {% for item in summary %}
-                <tr class="inv-row" data-category="{{ item['Category'] }}" data-supplier-id="{{ item['Supplier'] }}"
+                <tr class="inv-row" data-category="{{ item['Category'] }}" data-supplier="{{ item['Supplier'] }}"
                     style="{{ 'background-color: #ffebee;' if item['Current Stock'] <= item['Min Stock'] else '' }}">
                     <td class="text-muted">{{ item['Category'] }}</td>
                     <td>{{ item['Product Name'] }}</td>
@@ -233,8 +233,8 @@
             let show = true;
             if (type === 'category' && row.dataset.category !== filterVal) show = false;
             if (type === 'supplier') {
-                const selectedText = supSelect.options[supSelect.selectedIndex].text;
-                if (row.children[4].textContent !== selectedText) show = false;
+                const selectedText = supSelect.options[supSelect.selectedIndex].text.trim();
+                if (row.dataset.supplier.trim() !== selectedText) show = false;
             }
             row.style.display = show ? '' : 'none';
             if (show) visibleCount++;

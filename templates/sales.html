@@ -213,18 +213,18 @@
             <div onclick="confirmPriceChoice('current')"
                 style="border: 2px solid #eee; padding: 15px; border-radius: 8px; cursor: pointer; transition: 0.2s;"
                 onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='#eee'">
-                <div class="text-muted">Current List Price</div>
+                <div class="text-muted">Standard / List Price</div>
                 <h2 class="text-primary" id="pc-current-price"></h2>
             </div>
 
             <div onclick="confirmPriceChoice('last')"
                 style="border: 2px solid #ffd700; background: #fffbe6; padding: 15px; border-radius: 8px; cursor: pointer; transition: 0.2s;"
                 onmouseover="this.style.borderColor='orange'" onmouseout="this.style.borderColor='#ffd700'">
-                <div class="text-muted">Last Sold Price</div>
+                <div class="text-muted" id="pc-client-label">Price Last Given</div>
                 <h2 class="text-warning" id="pc-last-price"></h2>
             </div>
         </div>
-        <p class="text-muted mt-2" style="font-size: 0.8rem;">Click a box to select that price.</p>
+        <p class="text-muted mt-2" style="font-size: 0.8rem;">Click a box to select the price you want to use.</p>
     </div>
 </div>
 <script>
@@ -316,42 +316,50 @@
             }
         });
 
-        // --- API CHECK FOR PRICE HISTORY ---
+        // --- API: FETCH FULL PRODUCT DETAILS THEN CHECK PRICE HISTORY ---
         window.checkPriceAndSelect = function (product) {
             const clientName = "{{ selected_client }}";
 
-            // If manual / no client, just select normal price
-            if (!clientName) {
-                selectProduct(product, product.mrp);
-                return;
-            }
-
-            // Call Backend API
-            fetch(`/get_last_sale_price?client_name=${encodeURIComponent(clientName)}&product_name=${encodeURIComponent(product.name)}`)
+            // Fetch full product details (mrp, stock, gst etc.) on demand
+            fetch(`/get_product_details/${product.id}`)
                 .then(res => res.json())
-                .then(data => {
-                    // If history found AND price is different
-                    if (data.found && Math.abs(data.price - product.mrp) > 0.01) {
-                        tempCurrentPrice = product.mrp;
-                        tempLastPrice = data.price;
-                        selectedProduct = product; // Save for modal callback
+                .then(fullProduct => {
+                    // Merge lightweight catalog entry with full details
+                    const enriched = Object.assign({}, product, fullProduct);
 
-                        // Fill Modal Data
-                        document.getElementById('pc-product-name').textContent = data.sold_name;
-                        document.getElementById('pc-last-date').textContent = data.date;
-                        document.getElementById('pc-current-price').textContent = '₹' + tempCurrentPrice.toFixed(2);
-                        document.getElementById('pc-last-price').textContent = '₹' + tempLastPrice.toFixed(2);
-
-                        // Show Modal
-                        document.getElementById('priceChoiceModal').classList.add('active');
-                    } else {
-                        // No interesting history, select normally
-                        selectProduct(product, product.mrp);
+                    if (!clientName) {
+                        selectProduct(enriched, enriched.mrp);
+                        return;
                     }
+
+                    // Now check price history with enriched product
+                    fetch(`/get_last_sale_price?client_name=${encodeURIComponent(clientName)}&product_name=${encodeURIComponent(enriched.name)}&_=${Date.now()}`)
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.found && Math.abs(data.price - enriched.mrp) > 0.01) {
+                                tempCurrentPrice = enriched.mrp;
+                                tempLastPrice = data.price;
+                                selectedProduct = enriched;
+
+                                document.getElementById('pc-product-name').textContent = data.sold_name;
+                                document.getElementById('pc-last-date').textContent = data.date;
+                                document.getElementById('pc-current-price').textContent = '₹' + tempCurrentPrice.toFixed(2);
+                                document.getElementById('pc-last-price').textContent = '₹' + tempLastPrice.toFixed(2);
+
+                                let baseName = clientName.split(' - ')[0].trim();
+                                let clientLabel = document.getElementById('pc-client-label');
+                                if (clientLabel) clientLabel.textContent = `Price Given to ${baseName}`;
+
+                                document.getElementById('priceChoiceModal').classList.add('active');
+                            } else {
+                                selectProduct(enriched, enriched.mrp);
+                            }
+                        })
+                        .catch(() => selectProduct(enriched, enriched.mrp));
                 })
                 .catch(err => {
-                    console.error("Price check failed", err);
-                    selectProduct(product, product.mrp); // Fail safe
+                    console.error('Product detail fetch failed', err);
+                    alert('Could not load product details. Please try again.');
                 });
         };
 
@@ -376,8 +384,9 @@
             document.getElementById('sel_name').textContent = product.name;
             document.getElementById('sel_unit').textContent = product.unit;
 
-            // 3. Set Price (Visible text + Data for later)
-            document.getElementById('sel_price').textContent = effectivePrice;
+            // 3. Set Price — guard against null/undefined from API so textContent is never "null"
+            const safePrice = (effectivePrice != null && !isNaN(Number(effectivePrice))) ? effectivePrice : 0;
+            document.getElementById('sel_price').textContent = safePrice;
 
             // 4. Stock Indicator
             const stockSpan = document.getElementById('sel_stock');
@@ -415,8 +424,9 @@
                 const qty = parseInt(qtyInput.value);
                 if (qty <= 0) { alert("Qty must be > 0"); return; }
 
-                // READ THE CHOSEN PRICE FROM THE UI DISPLAY
-                const finalPrice = parseFloat(document.getElementById('sel_price').textContent);
+                // READ THE CHOSEN PRICE — fallback to selectedProduct.mrp if DOM value is missing/NaN
+                let finalPrice = parseFloat(document.getElementById('sel_price').textContent);
+                if (isNaN(finalPrice)) finalPrice = selectedProduct.mrp || 0;
 
                 let variation = null;
                 if (selectedProduct.has_sub) variation = varInput.value;
@@ -438,8 +448,10 @@
         function addToCart(product, qty, variation, description, overridePrice) {
             let itemName = product.name;
 
-            // Decide Price (Override from history OR standard MRP)
-            const priceToUse = (overridePrice !== undefined) ? overridePrice : product.mrp;
+            // Decide Price — NaN-safe: only use override if it is a real number
+            const priceToUse = (overridePrice !== undefined && overridePrice !== null && !isNaN(Number(overridePrice)))
+                ? Number(overridePrice)
+                : (product.mrp || 0);
 
             const uniqueId = product.id + (variation ? `-${variation}` : '');
 

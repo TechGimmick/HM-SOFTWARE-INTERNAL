@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from app.extensions import db
 from app.models import Sale, SaleItem, Product, Customer
-from sqlalchemy import func
+from sqlalchemy import func, case
 import json
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -10,27 +10,52 @@ import re
 
 sales_bp = Blueprint('sales', __name__)
 
-def get_all_products_catalog():
-    products = Product.query.all()
+def get_product_names_catalog():
+    """Lightweight: only id, name, category — no prices, stock, or extras."""
+    products = db.session.query(
+        Product.id, Product.name, Product.category, Product.unit,
+        Product.has_subcategory, Product.subcategory_type, Product.subcategory_options
+    ).all()
     catalog = {}
+    all_list = []
     for p in products:
         cat = p.category if p.category else "Uncategorized"
-        if cat not in catalog: catalog[cat] = []
-        
-        catalog[cat].append({
-            'id': p.id, 
-            'name': p.name, 
-            'raw_name': p.name, 
+        if cat not in catalog:
+            catalog[cat] = []
+        entry = {
+            'id': p.id,
+            'name': p.name,
+            'raw_name': p.name,
             'category': cat,
-            'unit': p.unit, 
-            'mrp': p.mrp, 
-            'quantity': p.quantity, 
-            'barcode': p.barcode,
+            'unit': p.unit,
             'has_sub': p.has_subcategory,
             'sub_type': p.subcategory_type,
             'sub_opts': p.subcategory_options.split(',') if p.subcategory_options else []
-        })
-    return catalog, sorted(catalog.keys())
+        }
+        catalog[cat].append(entry)
+        all_list.append(entry)
+    return catalog, sorted(catalog.keys()), all_list
+
+@sales_bp.route("/get_product_details/<int:product_id>")
+@login_required
+def get_product_details(product_id):
+    """Returns full product info for a single product. Called when adding to cart."""
+    p = db.session.get(Product, product_id)
+    if not p:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify({
+        'id': p.id,
+        'name': p.name,
+        'category': p.category if p.category else 'Uncategorized',
+        'unit': p.unit or '',
+        'mrp': float(p.mrp) if p.mrp is not None else 0.0,
+        'quantity': int(p.quantity) if p.quantity is not None else 0,
+        'barcode': p.barcode,
+        'gst_rate': float(p.gst_rate) if p.gst_rate is not None else 0.0,
+        'has_sub': bool(p.has_subcategory),
+        'sub_type': p.subcategory_type or '',
+        'sub_opts': p.subcategory_options.split(',') if p.subcategory_options else []
+    })
 
 def add_new_client_db(name, phone=None):
     if not name: return False
@@ -49,44 +74,45 @@ def sales_page():
         return redirect(url_for('inventory.dashboard'))
     
     selected_client = request.args.get('client_name')
-    catalog, categories = get_all_products_catalog()
+    
+    # Only customer names for the dropdown — very lightweight
+    customers = Customer.query.with_entities(Customer.name, Customer.phone).order_by(Customer.name).all()
+    client_list = []
+    for c in customers:
+        if c.phone:
+            client_list.append(f"{c.name} - {c.phone}")
+        else:
+            client_list.append(c.name)
+            
+    if not selected_client:
+        return render_template('sales.html', client_list=client_list, client_balances={}, selected_client=None, categories=[], all_products_json="[]", product_catalog_json="{}")
+
+    # Client selected: load ONLY product names/IDs (not full product data)
+    catalog, categories, all_list = get_product_names_catalog()
     product_catalog_json = json.dumps(catalog)
+    all_products_json = json.dumps(all_list)
 
-    # Reuse already-loaded products from catalog to avoid second DB query
-    all_products_list = []
-    for cat_products in catalog.values():
-        for p in cat_products:
-            all_products_list.append(p)
-    all_products_json = json.dumps(all_products_list)
-
-    # --- Calculate Outstanding Dues per Client ---
-    dues_map = defaultdict(float)
-    unpaid_sales = Sale.query.filter(Sale.payment_status != 'Payment Received').all()
+    # Outstanding balance for this client
+    debt = 0.0
+    unpaid_sales = Sale.query.filter(
+        Sale.client_name == selected_client,
+        Sale.payment_status != 'Payment Received'
+    ).all()
     for s in unpaid_sales:
         total = s.grand_total if s.grand_total is not None else sum(i.total_price for i in s.items)
         paid = (s.paid_cash or 0.0) + (s.paid_online or 0.0)
         due = total - paid
         if due > 0.1:
-            dues_map[s.client_name] += due
+            debt += due
 
-    # --- Build Client List & Net Balance Map ---
-    customers = Customer.query.order_by(Customer.name).all()
-    client_list = []
+    base_name = selected_client.split(' - ')[0].strip()
+    customer = Customer.query.filter(func.lower(Customer.name) == func.lower(base_name)).first()
+    wallet = customer.wallet_balance if customer else 0.0
+    
+    net_balance = wallet - debt
     client_balances = {}
-    for c in customers:
-        if c.phone:
-            c_key = f"{c.name} - {c.phone}"
-        else:
-            c_key = c.name
-        
-        client_list.append(c_key)
-        
-        wallet = c.wallet_balance or 0.0
-        debt = dues_map.get(c_key, 0.0)
-        net_balance = wallet - debt
-        
-        if abs(net_balance) > 0.1:
-            client_balances[c_key] = net_balance
+    if abs(net_balance) > 0.1:
+        client_balances[selected_client] = net_balance
     
     return render_template('sales.html', client_list=client_list, client_balances=client_balances, selected_client=selected_client, categories=categories, all_products_json=all_products_json, product_catalog_json=product_catalog_json)
 
@@ -112,42 +138,54 @@ def process_sale():
         client_name = request.form.get('client_name')
         cart_json = request.form.get('sales_cart')
         if not client_name or not cart_json: return redirect(url_for('sales.sales_page'))
-        
+
         cart_items = json.loads(cart_json)
         new_sale = Sale(client_name=client_name)
         db.session.add(new_sale)
-        db.session.commit()
-        
+        # flush() writes the row and gives us new_sale.id — no round-trip commit yet
+        db.session.flush()
+
+        # --- Batch-load all products in 2 queries max (by ID + by name) ---
+        id_items   = [item for item in cart_items if item.get('id')  and int(item.get('qty', 0)) > 0]
+        name_items = [item for item in cart_items if not item.get('id') and int(item.get('qty', 0)) > 0]
+
+        id_map, name_map = {}, {}
+        if id_items:
+            pids  = [item['id'] for item in id_items]
+            prods = Product.query.filter(Product.id.in_(pids)).all()
+            id_map = {p.id: p for p in prods}
+        if name_items:
+            names = [item['name'] for item in name_items]
+            prods = Product.query.filter(func.lower(Product.name).in_([n.lower() for n in names])).all()
+            name_map = {p.name.lower(): p for p in prods}
+
         running_total = 0.0
         for item in cart_items:
-            qty = int(item['qty'])
+            qty = int(item.get('qty', 0))
             if qty <= 0: continue
-            product = None
-            if 'id' in item and item['id']: product = db.session.get(Product, item['id'])
-            
+
             final_name = item['name']
-            if 'variation' in item and item['variation']: final_name = f"{item['name']} - {item['variation']}"
-            
-            if not product:
-                product = Product.query.filter(Product.name.ilike(item['name'])).first()
-            
-            if product: 
+            if item.get('variation'): final_name = f"{item['name']} - {item['variation']}"
+
+            product = id_map.get(item['id']) if item.get('id') else name_map.get(item['name'].lower())
+            if product:
                 product.quantity -= qty
-                db.session.add(product)
-            
+
             line_total = float(item['total'])
             running_total += line_total
-            desc = item.get('description', '')
-            sale_item = SaleItem(sale_id=new_sale.id, category=item['category'], product_name=final_name, description=desc, qty_sold=qty, unit=item['unit'], total_price=line_total, gst_rate=float(item.get('gst') or 0.0))
-            db.session.add(sale_item)
-        
+            db.session.add(SaleItem(
+                sale_id=new_sale.id, category=item['category'], product_name=final_name,
+                description=item.get('description', ''), qty_sold=qty, unit=item['unit'],
+                total_price=line_total, gst_rate=float(item.get('gst') or 0.0)
+            ))
+
         new_sale.grand_total = running_total
-        db.session.commit()
+        db.session.commit()   # single commit for the whole bill
         flash(f"Bill No. {new_sale.id} recorded.", "success")
     except Exception as e:
         db.session.rollback()
         flash(f"Error: {e}", "danger")
-    
+
     return redirect(url_for('sales.sales_log'))
 
 @sales_bp.route("/sales_log")
@@ -163,14 +201,16 @@ def sales_log():
     # Get filters
     filter_date_str = request.args.get('filter_date')
     filter_status = request.args.get('filter_status')
+    filter_client_str = request.args.get('filter_client')
     
     query = Sale.query
     
-    # Logic: 
-    # 1. If Date selected -> Show that Date (apply status filter if exists)
-    # 2. If Status selected (and not 'all') -> Show ALL matched status (ignore date limit)
-    # 3. If None -> Show Default (Last 2 Days)
+    is_global_search = False
     
+    if filter_client_str:
+        query = query.filter(Sale.client_name.ilike(f"%{filter_client_str}%"))
+        is_global_search = True
+
     has_date_filter = False
     if filter_date_str:
         try:
@@ -182,6 +222,7 @@ def sales_log():
             flash("Invalid date format.", "danger")
 
     if filter_status and filter_status != 'all':
+        is_global_search = True
         if filter_status == 'partial':
             query = query.filter(Sale.payment_status.in_(['Partial Payment', 'Payment Not Received']))
         elif filter_status == 'received':
@@ -196,8 +237,8 @@ def sales_log():
         if not has_date_filter:
              flash(f"Showing all '{filter_status}' records found in system.", "info")
     
-    elif not has_date_filter:
-        # DEFAULT: If no date AND no status filter, just show recent
+    elif not has_date_filter and not is_global_search:
+        # DEFAULT: If no date AND no status filter and no client search, just show recent
         two_days_ago = now_ist.date() - timedelta(days=2)
         query = query.filter(func.date(Sale.date) >= two_days_ago)
     
@@ -210,18 +251,19 @@ def sales_log():
     
     # Helper to get sums safely
     def get_sums(filters):
-        # Cash & Online actually received
-        cash   = db.session.query(func.sum(Sale.paid_cash)).filter(*filters).scalar() or 0.0
-        online = db.session.query(func.sum(Sale.paid_online)).filter(*filters).scalar() or 0.0
-        # Total = money actually collected (not billing total which inflates with unpaid dues)
-        total  = cash + online
-        # Credit = outstanding dues only from bills that are NOT fully paid
-        unpaid_filters = list(filters) + [Sale.payment_status != 'Payment Received']
-        gt_sum  = db.session.query(func.sum(Sale.grand_total)).filter(*unpaid_filters).scalar() or 0.0
-        pc_sum  = db.session.query(func.sum(Sale.paid_cash)).filter(*unpaid_filters).scalar() or 0.0
-        po_sum  = db.session.query(func.sum(Sale.paid_online)).filter(*unpaid_filters).scalar() or 0.0
-        credit  = max(0.0, gt_sum - pc_sum - po_sum)
-        return {'total': total, 'cash': cash, 'online': online, 'credit': credit}
+        # Single query using SQL CASE — replaces 6 separate queries per call
+        is_unpaid = Sale.payment_status != 'Payment Received'
+        row = db.session.query(
+            func.coalesce(func.sum(Sale.paid_cash), 0.0),
+            func.coalesce(func.sum(Sale.paid_online), 0.0),
+            func.coalesce(func.sum(case((is_unpaid, Sale.grand_total), else_=0)), 0.0),
+            func.coalesce(func.sum(case((is_unpaid, Sale.paid_cash),    else_=0)), 0.0),
+            func.coalesce(func.sum(case((is_unpaid, Sale.paid_online),  else_=0)), 0.0),
+        ).filter(*filters).one()
+        cash   = float(row[0])
+        online = float(row[1])
+        credit = max(0.0, float(row[2]) - float(row[3]) - float(row[4]))
+        return {'total': cash + online, 'cash': cash, 'online': online, 'credit': credit}
 
     daily_stats = get_sums([func.date(Sale.date) == today_date])
     monthly_stats = get_sums([func.date(Sale.date) >= start_of_month])
@@ -252,14 +294,22 @@ def sales_log():
             'items': items_list
         })
         
-    customers = Customer.query.all()
+    # Only fetch customers who appear in the current visible sales — not the full table
+    visible_names = {s.client_name.split(' - ')[0].strip() for s in sales}
     wallet_map = {}
-    for c in customers:
-        if c.wallet_balance and abs(c.wallet_balance) > 0.01: 
-            wallet_map[c.name] = c.wallet_balance
+    if visible_names:
+        custs = Customer.query\
+            .filter(Customer.name.in_(visible_names))\
+            .with_entities(Customer.name, Customer.wallet_balance)\
+            .all()
+        wallet_map = {
+            c.name: c.wallet_balance
+            for c in custs
+            if c.wallet_balance and abs(c.wallet_balance) > 0.01
+        }
 
     now_month = now_ist.strftime('%Y-%m')
-    return render_template('sales_log.html', sales_by_date=sales_by_date, daily_stats=daily_stats, monthly_stats=monthly_stats, wallet_map=wallet_map, current_filter_date=filter_date_str, current_filter_status=filter_status, now_month=now_month)
+    return render_template('sales_log.html', sales_by_date=sales_by_date, daily_stats=daily_stats, monthly_stats=monthly_stats, wallet_map=wallet_map, current_filter_date=filter_date_str, current_filter_status=filter_status, current_filter_client=filter_client_str, now_month=now_month)
 
 @sales_bp.route("/sales_monthly_stats")
 @login_required
@@ -298,9 +348,9 @@ def edit_bill(sales_id):
     sale = db.session.get(Sale, sales_id)
     if not sale: return redirect(url_for('sales.sales_log'))
     
-    catalog, categories = get_all_products_catalog()
+    catalog, categories, _ = get_product_names_catalog()
     product_catalog_json = json.dumps(catalog)
-    client_list = [c.name for c in Customer.query.order_by(Customer.name).all()]
+    client_list = [c.name for c in Customer.query.with_entities(Customer.name).order_by(Customer.name).all()]
     
     bill_data = {'sales_id': sale.id, 'client_name': sale.client_name, 'items': []}
     for item in sale.items:
@@ -319,10 +369,12 @@ def get_last_sale_price():
     if not client_name or not product_name:
         return jsonify({'found': False})
 
+    base_client_name = client_name.split(' - ')[0].strip()
+
     last_item = db.session.query(SaleItem).join(Sale).filter(
-        Sale.client_name == client_name,
+        Sale.client_name.ilike(f"{base_client_name}%"),
         SaleItem.product_name.ilike(f"{product_name}%") 
-    ).order_by(Sale.date.desc()).first()
+    ).order_by(Sale.date.desc(), Sale.id.desc()).first()
 
     if last_item:
         unit_price = last_item.total_price / last_item.qty_sold if last_item.qty_sold > 0 else 0
@@ -340,24 +392,34 @@ def get_last_sale_price():
 @login_required
 def process_edit_sale():
     try:
-        sales_id = request.form.get('sales_id')
+        sales_id   = request.form.get('sales_id')
         client_name = request.form.get('client_name')
-        cart_json = request.form.get('sales_cart')
-        
+        cart_json  = request.form.get('sales_cart')
+
         sale = db.session.get(Sale, sales_id)
         if not sale or not cart_json: return redirect(url_for('sales.sales_log'))
-        
+
         cart_items = json.loads(cart_json)
-        
-        for old_item in sale.items: 
-            product = Product.query.filter_by(name=old_item.product_name).first()
-            if not product and ' (' in old_item.product_name: 
-                product = Product.query.filter_by(name=old_item.product_name.split(' (')[0]).first()
-            if product: 
-                product.quantity += old_item.qty_sold
-                db.session.add(product)
-        
-        if not cart_items: 
+        old_items  = list(sale.items)   # snapshot before any deletes
+
+        # --- 1. BATCH restore old stock (1 query instead of N) ---
+        if old_items:
+            old_names = set()
+            for oi in old_items:
+                old_names.add(oi.product_name)
+                if ' (' in oi.product_name: old_names.add(oi.product_name.split(' (')[0].strip())
+                if ' - ' in oi.product_name: old_names.add(oi.product_name.split(' - ')[0].strip())
+            old_prod_map = {p.name: p for p in Product.query.filter(Product.name.in_(list(old_names))).all()}
+
+            for oi in old_items:
+                prod = (old_prod_map.get(oi.product_name)
+                        or old_prod_map.get(oi.product_name.split(' (')[0].strip() if ' (' in oi.product_name else None)
+                        or old_prod_map.get(oi.product_name.split(' - ')[0].strip() if ' - ' in oi.product_name else None))
+                if prod:
+                    prod.quantity += oi.qty_sold
+
+        # --- 2. Handle delete-bill case ---
+        if not cart_items:
             if sale.wallet_credit and sale.wallet_credit > 0:
                 search_name = sale.client_name.split(' - ')[0].strip()
                 customer = Customer.query.filter(func.lower(Customer.name) == func.lower(search_name)).first()
@@ -365,47 +427,58 @@ def process_edit_sale():
                     customer.wallet_balance -= sale.wallet_credit
                     db.session.add(customer)
                     flash(f"Reverted ₹{sale.wallet_credit} from {customer.name}'s wallet.", "info")
-
             db.session.delete(sale)
             db.session.commit()
             flash(f"Bill #{sales_id} deleted.", "warning")
             return redirect(url_for('sales.sales_log'))
 
-        for old_item in list(sale.items): db.session.delete(old_item)
-        
+        # --- 3. Clear old line items ---
+        for oi in old_items: db.session.delete(oi)
+
         sale.client_name = client_name
         running_total = 0.0
-        
+
+        # --- 4. BATCH load new products (1 query by ID + 1 by name instead of N) ---
+        new_id_items   = [item for item in cart_items if item.get('id')  and int(item.get('qty', 0)) > 0]
+        new_name_items = [item for item in cart_items if not item.get('id') and int(item.get('qty', 0)) > 0]
+
+        new_id_map, new_name_map = {}, {}
+        if new_id_items:
+            pids  = [item['id'] for item in new_id_items]
+            prods = Product.query.filter(Product.id.in_(pids)).all()
+            new_id_map = {p.id: p for p in prods}
+        if new_name_items:
+            base_names = [item['name'].split(' (')[0].split(' - ')[0].strip() for item in new_name_items]
+            prods = Product.query.filter(func.lower(Product.name).in_([n.lower() for n in base_names])).all()
+            new_name_map = {p.name.lower(): p for p in prods}
+
         for item in cart_items:
-            qty = int(item['qty'])
+            qty      = int(item.get('qty', 0))
             gst_rate = float(item.get('gst') or 0.0)
             if qty <= 0: continue
-            
+
             final_name = item['name']
-            if 'variation' in item and item['variation']: final_name = f"{item['name']} - {item['variation']}"
-            
-            product = None
-            if 'id' in item and item['id']: product = db.session.get(Product, item['id'])
-            if not product: 
-                # Try splitting by ' (' for legacy or ' - ' for variations
-                base_name_search = item['name'].split(' (')[0].split(' - ')[0]
-                product = Product.query.filter(Product.name.ilike(base_name_search)).first()
-            
-            if product: 
+            if item.get('variation'): final_name = f"{item['name']} - {item['variation']}"
+
+            product = new_id_map.get(item['id']) if item.get('id') else None
+            if not product:
+                base = item['name'].split(' (')[0].split(' - ')[0].strip()
+                product = new_name_map.get(base.lower())
+            if product:
                 product.quantity -= qty
-                db.session.add(product)
-            
+
             line_total = float(item['total'])
             running_total += line_total
-            desc = item.get('description', '')
-            
-            sale_item = SaleItem(sale_id=sale.id, category=item['category'], product_name=final_name, description=desc, qty_sold=qty, unit=item['unit'], total_price=line_total, gst_rate=gst_rate)
-            db.session.add(sale_item)
-            
+            db.session.add(SaleItem(
+                sale_id=sale.id, category=item['category'], product_name=final_name,
+                description=item.get('description', ''), qty_sold=qty, unit=item['unit'],
+                total_price=line_total, gst_rate=gst_rate
+            ))
+
         sale.grand_total = running_total
-        db.session.commit()
+        db.session.commit()   # single commit for everything
         flash(f"Bill #{sale.id} updated.", "success")
-        
+
     except Exception as e:
         db.session.rollback()
         flash(f"Error: {e}", "danger")

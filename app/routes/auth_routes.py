@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, request, flash
+from flask import Blueprint, render_template, redirect, url_for, request, flash, session
 from flask_login import login_user, logout_user, login_required, current_user
 from app.models import User
 
@@ -21,6 +21,7 @@ def login():
         
         if user and user.check_password(password):
             login_user(user)
+            session['role'] = user.role  # Set session role so all guards work
             flash('Logged in successfully.', 'success')
             return redirect(url_for('inventory.dashboard'))
                 
@@ -30,6 +31,7 @@ def login():
 @auth_bp.route('/logout')
 @login_required
 def logout():
+    session.pop('role', None)  # Clear role on logout
     logout_user()
     flash('You have been logged out.', 'info')
     return redirect(url_for('auth.login'))

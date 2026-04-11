@@ -19,27 +19,21 @@
     <form method="POST" action="{{ url_for('purchase.process_purchase') }}" id="purchase-form">
 
         <div class="row align-items-end mb-2 g-2">
-            <!-- SUPPLIER DROPDOWN -->
+            <!-- SUPPLIER DROPDOWN (populated by JS) -->
             <div class="col-12 col-sm form-group mb-0" id="div-supplier-select">
                 <label>Select Supplier</label>
                 <select name="supplier_id" id="supplier_select" class="form-control"
                     onchange="loadProducts(this.value, 'supplier')">
-                    <option value="" disabled selected>-- Select Supplier --</option>
-                    {% for s in suppliers %}
-                    <option value="{{ s.id }}">{{ s.name }}</option>
-                    {% endfor %}
+                    <option value="" disabled selected>Loading suppliers…</option>
                 </select>
             </div>
 
-            <!-- CATEGORY DROPDOWN -->
+            <!-- CATEGORY DROPDOWN (populated by JS on demand) -->
             <div class="col-12 col-sm form-group mb-0" id="div-category-select" style="display:none;">
                 <label>Select Category</label>
                 <select id="category_select_filter" class="form-control"
                     onchange="loadProducts(this.value, 'category')">
-                    <option value="" disabled selected>-- Select Category --</option>
-                    {% for c in categories %}
-                    <option value="{{ c }}">{{ c }}</option>
-                    {% endfor %}
+                    <option value="" disabled selected>Loading categories…</option>
                 </select>
             </div>
 
@@ -63,13 +57,13 @@
             </div>
 
             <div class="table-responsive">
-                <table id="bulk-order-table" style="min-width: 800px;"> <!-- Ensure table doesn't squash too much -->
+                <table id="bulk-order-table" style="min-width: 800px;">
                     <thead>
                         <tr>
                             <th style="width: 20%;">Product</th>
                             <th style="width: 10%;">HSN / GST</th>
                             <th style="width: 15%;">Stock (Qty)</th>
-                            <th style="width: 20%;">Min / Max</th> <!-- Increased width -->
+                            <th style="width: 20%;">Min / Max</th>
                             <th style="width: 10%;">Cost</th>
                             <th style="width: 10%;">Sales</th>
                             <th style="width: 15%; background-color: var(--light);">Order Qty</th>
@@ -141,7 +135,7 @@
             </div>
 
             <div class="form-group">
-                <label>Product Name (Sales &amp; Inventory)</label>
+                <label>Product Name (Sales & Inventory)</label>
                 <input type="text" name="product_name" class="form-control" required
                     placeholder="e.g. Glass Cleaner 5L">
             </div>
@@ -199,16 +193,35 @@
         </form>
     </div>
 </div>
-<!-- Scripts -->
+
 <script>
     let currentMode = 'supplier';
+    let categoriesLoaded = false;
+    const autoSupplier = "{{ auto_supplier or '' }}";
 
-    document.addEventListener("DOMContentLoaded", function () {
-        const autoSupplier = "{{ auto_supplier or '' }}";
-        if (autoSupplier) {
-            document.getElementById('supplier_select').value = autoSupplier;
-            loadProducts(autoSupplier, 'supplier');
-        }
+    // ── Page Load: fetch suppliers via JS (zero server DB queries) ──
+    window.addEventListener('DOMContentLoaded', function () {
+        fetch('/get_suppliers')
+            .then(r => r.json())
+            .then(suppliers => {
+                const sel = document.getElementById('supplier_select');
+                sel.innerHTML = '<option value="" disabled selected>-- Select Supplier --</option>';
+                suppliers.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s.id;
+                    opt.textContent = s.name;
+                    sel.appendChild(opt);
+                });
+                // Auto-select supplier if redirected back (e.g. after adding product)
+                if (autoSupplier) {
+                    sel.value = autoSupplier;
+                    loadProducts(autoSupplier, 'supplier');
+                }
+            })
+            .catch(() => {
+                document.getElementById('supplier_select').innerHTML =
+                    '<option value="" disabled selected>-- Could not load --</option>';
+            });
     });
 
     function toggleSubCategory(checkbox) {
@@ -233,6 +246,21 @@
             document.getElementById('btn-add-new-supplier').style.display = 'none';
             document.getElementById('div-category-select').style.display = 'block';
             document.getElementById('mode-desc').textContent = "Select a category to view items from all suppliers.";
+            // Load categories only once, only when user actually clicks "By Category"
+            if (!categoriesLoaded) {
+                categoriesLoaded = true;
+                fetch('/get_categories')
+                    .then(r => r.json())
+                    .then(cats => {
+                        const sel = document.getElementById('category_select_filter');
+                        sel.innerHTML = '<option value="" disabled selected>-- Select Category --</option>';
+                        cats.forEach(c => {
+                            const opt = document.createElement('option');
+                            opt.value = c; opt.textContent = c;
+                            sel.appendChild(opt);
+                        });
+                    });
+            }
         }
     }
 
@@ -243,11 +271,9 @@
     async function loadProducts(value, type) {
         if (!value) return;
 
-        // 1. Setup API Endpoints based on selection type
         let endpoint = type === 'supplier' ? `/get_products_by_supplier/${value}` : `/get_products_by_category/${value}`;
         let downloadUrl = type === 'supplier' ? `/download_supplier_products/${value}` : `#`;
 
-        // 2. Update UI Elements (Buttons, Headers)
         if (type === 'supplier') {
             const name = document.querySelector(`#supplier_select option[value="${value}"]`).text;
             document.getElementById('display-filter-name').textContent = name;
@@ -262,76 +288,62 @@
         document.getElementById('download-list-btn').href = downloadUrl;
         document.getElementById('catalog-section').style.display = 'block';
 
-        // 3. Fetch Data from Backend
+        const tbody = document.getElementById('bulk-order-body');
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center p-3">Loading products…</td></tr>';
+
         const response = await fetch(endpoint);
         const products = await response.json();
-        const tbody = document.getElementById('bulk-order-body');
         tbody.innerHTML = '';
 
-        // 4. Handle Empty Results
         if (products.length === 0) {
             tbody.innerHTML = '<tr><td colspan="7" class="text-center p-3">No products found.</td></tr>';
             return;
         }
 
-        // 5. Build Table Rows
         products.forEach(p => {
-            // Helper: Format Barcode
             let barcodeDisplay = p.barcode ? `<div class="text-muted" style="font-size:0.75rem;">🔍 ${p.barcode}</div>` : '';
-
-            // Helper: Format GST
             let gstDisplay = p.gst_rate ? `<div style="font-size:0.75rem; color:var(--secondary);">GST: ${p.gst_rate}%</div>` : '';
-
-            // --- NEW: LAST RECEIVED DISPLAY ---
-            // Shows the date if it exists, otherwise shows "Never Received"
             let lastRcvDisplay = p.last_purchased
                 ? `<div style="font-size:0.75rem; color:#2e7d32; margin-top:2px; font-weight:500;">📅 Last: ${p.last_purchased}</div>`
                 : '<div style="font-size:0.75rem; color:#999; margin-top:2px;">📅 Never Received</div>';
-
-            // Helper: Highlight Low Stock Rows (Red Background)
             let rowStyle = '';
             if (p.stock <= p.min_stock) {
                 rowStyle = 'background-color: #ffebee; border-left: 4px solid var(--danger);';
             }
-
             const row = document.createElement('tr');
             if (rowStyle) row.style.cssText = rowStyle;
-
             row.innerHTML = `
-                    <td>
-                        <strong>${p.name}</strong>
-                        <br><small class="text-muted">${p.category}</small>
-                        ${barcodeDisplay}
-                        ${lastRcvDisplay} </td>
-                    
-                    <td>
-                        <div style="font-size: 0.9rem;">${p.hsn_code || '-'}</div>
-                        ${gstDisplay}
-                    </td>
-                    
-                    <td>
-                        <input type="number" class="input-sm w-100" value="${p.stock}" 
-                               onblur="updateProductStock(${p.id}, 'quantity', this)" 
-                               style="font-weight:bold; border-color:#ccc; min-width: 60px;">
-                        <small class="text-muted" style="display:block; text-align:right;">${p.unit}</small>
-                    </td>
-                    
-                    <td>
-                        <div style="display:flex; align-items:center; gap:5px; flex-wrap: wrap;">
-                            <input type="number" class="input-sm" value="${p.min_stock}" 
-                                   onblur="updateProductStock(${p.id}, 'min_stock', this)" 
-                                   style="flex: 1; min-width: 50px; border-color:#ccc; text-align:center;" title="Min">
-                            <span style="color:#aaa;">/</span>
-                            <input type="number" class="input-sm" value="${p.max_stock}" 
-                                   onblur="updateProductStock(${p.id}, 'max_stock', this)" 
-                                   style="flex: 1; min-width: 50px; border-color:#ccc; text-align:center;" title="Max">
-                        </div>
-                    </td>
-
-                    <td><input type="number" step="0.01" class="input-sm table-input cost-input w-100" value="${p.purchase_price}" data-id="${p.id}" style="min-width: 60px;"></td>
-                    <td><input type="number" step="0.01" class="input-sm table-input sales-input w-100" value="${p.sales_price}" data-id="${p.id}" style="min-width: 60px;"></td>
-                    <td><input type="number" min="0" class="input-sm qty-input" placeholder="0" data-id="${p.id}" data-name="${p.name}" data-cat="${p.category}" oninput="updateTotalCount()" style="width: 100%; min-width: 60px;"></td>
-                `;
+                <td>
+                    <strong>${p.name}</strong>
+                    <br><small class="text-muted">${p.category}</small>
+                    ${barcodeDisplay}
+                    ${lastRcvDisplay}
+                </td>
+                <td>
+                    <div style="font-size: 0.9rem;">${p.hsn_code || '-'}</div>
+                    ${gstDisplay}
+                </td>
+                <td>
+                    <input type="number" class="input-sm w-100" value="${p.stock}"
+                           onblur="updateProductStock(${p.id}, 'quantity', this)"
+                           style="font-weight:bold; border-color:#ccc; min-width: 60px;">
+                    <small class="text-muted" style="display:block; text-align:right;">${p.unit}</small>
+                </td>
+                <td>
+                    <div style="display:flex; align-items:center; gap:5px; flex-wrap: wrap;">
+                        <input type="number" class="input-sm" value="${p.min_stock}"
+                               onblur="updateProductStock(${p.id}, 'min_stock', this)"
+                               style="flex: 1; min-width: 50px; border-color:#ccc; text-align:center;" title="Min">
+                        <span style="color:#aaa;">/</span>
+                        <input type="number" class="input-sm" value="${p.max_stock}"
+                               onblur="updateProductStock(${p.id}, 'max_stock', this)"
+                               style="flex: 1; min-width: 50px; border-color:#ccc; text-align:center;" title="Max">
+                    </div>
+                </td>
+                <td><input type="number" step="0.01" class="input-sm table-input cost-input w-100" value="${p.purchase_price}" data-id="${p.id}" style="min-width: 60px;"></td>
+                <td><input type="number" step="0.01" class="input-sm table-input sales-input w-100" value="${p.sales_price}" data-id="${p.id}" style="min-width: 60px;"></td>
+                <td><input type="number" min="0" class="input-sm qty-input" placeholder="0" data-id="${p.id}" data-name="${p.name}" data-cat="${p.category}" oninput="updateTotalCount()" style="width: 100%; min-width: 60px;"></td>
+            `;
             tbody.appendChild(row);
         });
     }
@@ -339,7 +351,6 @@
     async function updateProductStock(id, field, inputElement) {
         const originalColor = inputElement.style.borderColor;
         const value = inputElement.value;
-
         try {
             const response = await fetch('/update_product_inline', {
                 method: 'POST',
@@ -347,7 +358,6 @@
                 body: JSON.stringify({ id: id, field: field, value: value })
             });
             const result = await response.json();
-
             if (result.success) {
                 inputElement.style.borderColor = 'green';
                 setTimeout(() => { inputElement.style.borderColor = originalColor; }, 1000);
@@ -362,9 +372,7 @@
     }
 
     function updateTotalCount() {
-        let count = 0;
-        let baseCost = 0;
-        let gstTotal = 0;
+        let count = 0, baseCost = 0, gstTotal = 0;
         document.querySelectorAll('#bulk-order-body tr').forEach(row => {
             const qtyInput = row.querySelector('.qty-input');
             const costInput = row.querySelector('.cost-input');
@@ -372,7 +380,6 @@
                 count++;
                 const qty = parseInt(qtyInput.value) || 0;
                 const cost = parseFloat(costInput ? costInput.value : 0) || 0;
-                // Read GST from the HSN/GST column (2nd cell)
                 const gstCell = row.cells[1];
                 let gst = 0;
                 if (gstCell) {

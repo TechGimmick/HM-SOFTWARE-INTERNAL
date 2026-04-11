@@ -15,12 +15,14 @@
 
     <script>
         // --- AUTO-LOGOUT ON TAB CLOSE ---
+        // If the user is authenticated, ensure the tab_token is always set.
+        // sessionStorage is wiped when the tab is CLOSED, so on next open they
+        // will hit the login page (which does sessionStorage.removeItem) and
+        // the server session will expire via Flask-Login's remember_me setting.
         const isUserLoggedIn = "{{ current_user.is_authenticated }}";
         if (isUserLoggedIn === "True") {
-            const tabToken = sessionStorage.getItem('tab_token');
-            if (!tabToken) {
-                // FIXED: auth.logout
-                window.location.href = "{{ url_for('auth.logout') }}";
+            if (!sessionStorage.getItem('tab_token')) {
+                sessionStorage.setItem('tab_token', 'valid');
             }
         }
     </script>

@@ -3,11 +3,11 @@ from flask_login import login_required, current_user
 from app.extensions import db
 from app.models import Product, Supplier, Purchase, Sale, SaleItem, Customer, User
 from sqlalchemy import func
+from sqlalchemy.orm import joinedload
 import datetime
 import re
 import json
 from collections import defaultdict
-from fpdf import FPDF
 
 inventory_bp = Blueprint('inventory', __name__)
 
@@ -18,31 +18,24 @@ def ping():
 @inventory_bp.route("/dashboard")
 @login_required
 def dashboard():
-    # --- 1. FETCH LOW STOCK ALERTS ---
-    alerts = []
-    try:
-        low_stock_products = Product.query.filter(Product.quantity <= Product.min_stock).all()
-        for p in low_stock_products:
-            alerts.append({
-                'name': p.name,
-                'category': p.category,
-                'current': p.quantity,
-                'min': p.min_stock
-            })
-    except Exception as e:
-        print(f"Alerts Error: {e}")
+    # Fast render — no DB queries here. All data is loaded via /dashboard_data after page load.
+    return render_template('dashboard.html', user=current_user)
 
-    # --- 2. FETCH RECENT SALES ---
+
+@inventory_bp.route("/dashboard_data")
+@login_required
+def dashboard_data():
+    """API endpoint — returns recent sales & purchases as JSON. No product queries."""
     sales_data = []
+    purchases_data = []
     today_revenue = 0.0
     today_pending_count = 0
+
     try:
         recent_sales_objs = Sale.query.order_by(Sale.date.desc()).limit(5).all()
         for s in recent_sales_objs:
-            # Fix: fallback to sum of items if grand_total is None
             total = s.grand_total if s.grand_total is not None else sum(i.total_price for i in s.items)
             status = s.payment_status or 'Payment Not Received'
-
             if status == 'Payment Received':
                 status_label = 'Paid'
                 status_class = 'status-received'
@@ -52,7 +45,6 @@ def dashboard():
             else:
                 status_label = 'Unpaid'
                 status_class = 'status-unpaid'
-
             sales_data.append({
                 'date': s.date.strftime('%d %b %Y'),
                 'client': s.client_name,
@@ -61,7 +53,6 @@ def dashboard():
                 'status_class': status_class
             })
 
-        # Today's Stats — use IST (UTC+5:30)
         today = (datetime.datetime.utcnow() + datetime.timedelta(hours=5, minutes=30)).date()
         today_sales = Sale.query.filter(func.date(Sale.date) == today).all()
         for s in today_sales:
@@ -69,12 +60,9 @@ def dashboard():
             today_revenue += total
             if s.payment_status != 'Payment Received':
                 today_pending_count += 1
-
     except Exception as e:
         print(f"Sales Data Error: {e}")
 
-    # --- 3. FETCH RECENT PURCHASES ---
-    purchases_data = []
     try:
         recent_purchases_objs = Purchase.query.order_by(Purchase.date.desc()).limit(5).all()
         for p in recent_purchases_objs:
@@ -83,7 +71,6 @@ def dashboard():
                 matches = re.findall(r'\(x(\d+)\)', p.product_name)
                 qty_display = sum(int(m) for m in matches)
                 if qty_display == 0: qty_display = 1
-
             purchases_data.append({
                 'date': p.date.strftime('%d %b %Y'),
                 'supplier': p.supplier_name,
@@ -93,20 +80,22 @@ def dashboard():
     except Exception as e:
         print(f"Purchase Data Error: {e}")
 
-    today_stats = {
-        'revenue': today_revenue,
-        'pending_bills': today_pending_count,
-        'low_stock_count': len(alerts)
-    }
-
-    return render_template('dashboard.html', alerts=alerts, sales=sales_data, purchases=purchases_data, user=current_user, today_stats=today_stats)
+    return jsonify({
+        'sales': sales_data,
+        'purchases': purchases_data,
+        'today_stats': {
+            'revenue': today_revenue,
+            'pending_bills': today_pending_count,
+        },
+        'role': current_user.role
+    })
 
 
 @inventory_bp.route("/inventory")    
 @login_required
 def inventory():
     try:
-        all_products = Product.query.all()
+        all_products = Product.query.options(joinedload(Product.supplier)).all()
         inventory_summary = []
         alerts = []
         categories = sorted(list(set([p.category for p in all_products if p.category])))
@@ -150,12 +139,26 @@ def purchase():
     if session.get("role") not in ["admin", "purchase"]:
         flash("Access Denied: Purchase Area is restricted.", "danger")
         return redirect(url_for('inventory.dashboard'))
-    
-    suppliers = Supplier.query.order_by(Supplier.name).all()
-    products = Product.query.all()
-    categories = sorted(list(set([p.category for p in products if p.category])))
-    auto_supplier = request.args.get('selected_supplier'); auto_product = request.args.get('selected_product')
-    return render_template('purchase.html', suppliers=suppliers, categories=categories, auto_supplier=auto_supplier, auto_product=auto_product)
+    # Zero DB queries — suppliers and categories load via JS after page render
+    auto_supplier = request.args.get('selected_supplier')
+    auto_product = request.args.get('selected_product')
+    return render_template('purchase.html', auto_supplier=auto_supplier, auto_product=auto_product)
+
+
+@inventory_bp.route("/get_suppliers")
+@login_required
+def get_suppliers():
+    """Lightweight API: returns supplier list as JSON for JS dropdowns."""
+    suppliers = Supplier.query.order_by(Supplier.name).with_entities(Supplier.id, Supplier.name).all()
+    return jsonify([{'id': s.id, 'name': s.name} for s in suppliers])
+
+
+@inventory_bp.route("/get_categories")
+@login_required
+def get_categories():
+    """Lightweight API: returns distinct category names as JSON for JS dropdowns."""
+    raw = db.session.query(Product.category).distinct().order_by(Product.category).all()
+    return jsonify(sorted([c[0] for c in raw if c[0]]))
 
 @inventory_bp.route("/process_purchase", methods=["POST"])
 @login_required

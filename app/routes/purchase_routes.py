@@ -72,19 +72,13 @@ def generate_product_pdf(products, title, filename):
 def purchase_page():
     if current_user.role not in ['purchase', 'admin']:
         flash("Access Denied: Purchase Area is restricted.", "danger")
-        return redirect(url_for('inventory.dashboard')) # Redirect to Dashboard
-    
-    suppliers = Supplier.query.order_by(Supplier.name).all()
-    products = Product.query.all()
-    categories = sorted(list(set([p.category for p in products if p.category])))
+        return redirect(url_for('inventory.dashboard'))
+    # Zero DB queries — suppliers and categories load via JS after page render
     auto_supplier = request.args.get('selected_supplier')
     auto_product = request.args.get('selected_product')
-    
-    return render_template('purchase.html', 
-                         suppliers=suppliers, 
-                         categories=categories, 
-                         auto_supplier=auto_supplier, 
-                         auto_product=auto_product)
+    return render_template('purchase.html',
+                           auto_supplier=auto_supplier,
+                           auto_product=auto_product)
 
 # --- 2. PROCESS PURCHASE (CREATE PO) ---
 @purchase_bp.route("/process_purchase", methods=["POST"])

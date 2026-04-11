@@ -22,9 +22,7 @@
         font-size: 0.85rem;
     }
 
-    .card h3 {
-        font-size: 1.2rem;
-    }
+    .card h3 { font-size: 1.2rem; }
 
     /* Today's Stats Bar */
     .stats-bar {
@@ -44,10 +42,7 @@
         gap: 12px;
     }
 
-    .stat-icon {
-        font-size: 1.8rem;
-        line-height: 1;
-    }
+    .stat-icon { font-size: 1.8rem; line-height: 1; }
 
     .stat-value {
         font-size: 1.4rem;
@@ -70,14 +65,28 @@
         margin-bottom: 1.5rem;
     }
 
-    @media (max-width: 480px) {
-        .dashboard-grid {
-            grid-template-columns: 1fr;
-        }
+    /* Skeleton loading shimmer */
+    @keyframes shimmer {
+        0%   { background-position: -600px 0; }
+        100% { background-position: 600px 0; }
+    }
 
-        .stats-bar {
-            grid-template-columns: 1fr 1fr;
-        }
+    .skeleton {
+        background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+        background-size: 600px 100%;
+        animation: shimmer 1.4s infinite;
+        border-radius: 4px;
+        display: inline-block;
+    }
+
+    .skeleton-stat-value { width: 70px; height: 28px; }
+    .skeleton-stat-label { width: 90px; height: 14px; margin-top: 4px; }
+    .skeleton-row { width: 100%; height: 16px; margin-bottom: 8px; }
+    .skeleton-short { width: 60%; }
+
+    @media (max-width: 480px) {
+        .dashboard-grid { grid-template-columns: 1fr; }
+        .stats-bar { grid-template-columns: 1fr 1fr; }
     }
 </style>
 
@@ -88,39 +97,27 @@
     </div>
 </div>
 
-<!-- === TODAY'S STATS BAR === -->
-{% if current_user.role in ['admin', 'sales'] %}
-<div class="stats-bar">
+<!-- === TODAY'S STATS BAR (skeleton shown immediately, filled by JS) === -->
+<div id="stats-bar-wrapper" class="stats-bar">
     <div class="stat-card">
         <div class="stat-icon">💰</div>
         <div>
-            <div class="stat-value">₹{{ "%.0f"|format(today_stats.revenue) }}</div>
+            <div class="stat-value" id="stat-revenue"><span class="skeleton skeleton-stat-value"></span></div>
             <div class="stat-label">Today's Revenue</div>
         </div>
     </div>
     <div class="stat-card">
         <div class="stat-icon">🕐</div>
         <div>
-            <div class="stat-value" style="{{ 'color: var(--danger);' if today_stats.pending_bills > 0 else '' }}">
-                {{ today_stats.pending_bills }}
-            </div>
+            <div class="stat-value" id="stat-pending"><span class="skeleton skeleton-stat-value"></span></div>
             <div class="stat-label">Unpaid Bills Today</div>
         </div>
     </div>
-    <div class="stat-card">
-        <div class="stat-icon">📦</div>
-        <div>
-            <div class="stat-value" style="{{ 'color: var(--danger);' if today_stats.low_stock_count > 0 else '' }}">
-                {{ today_stats.low_stock_count }}
-            </div>
-            <div class="stat-label">Low Stock Items</div>
-        </div>
-    </div>
 </div>
-{% endif %}
 
-<!-- === QUICK ACTIONS === -->
-<div class="quick-actions">
+<!-- === QUICK ACTIONS (always visible instantly, no data needed) === -->
+<div class="quick-actions" id="quick-actions-bar">
+    {# Rendered server-side since role is already known — no DB needed #}
     {% if current_user.role in ['admin', 'sales'] %}
     <a href="{{ url_for('sales.sales_page') }}" class="btn btn-primary">+ New Sale</a>
     {% endif %}
@@ -135,171 +132,199 @@
     {% endif %}
 </div>
 
-<!-- === LOW STOCK ALERTS === -->
-{% if alerts %}
-<div class="card alert-card" id="dash-alert-box" style="margin-bottom: 1.5rem;">
-    <h3
-        style="color: var(--danger); font-size: 1.1rem; display: flex; align-items: center; justify-content: space-between;">
-        <span>⚠️ Low Stock Alerts</span>
-        <span class="status-badge status-unpaid" style="font-size: 0.8rem;">{{ alerts|length }} Items</span>
-    </h3>
-    <ul class="alert-list" style="margin-top: 10px;">
-        {% for a in alerts %}
-        <li class="dash-alert-item" id="dalert-{{ a.name|replace(' ','_') }}"
-            style="margin-bottom: 5px; border-bottom: 1px dashed #eee; padding-bottom: 5px;">
-            <div style="display: flex; justify-content: space-between; flex-wrap: wrap; align-items: center;">
-                <span><strong>{{ a.name }}</strong> <small class="text-muted">({{ a.category }})</small></span>
-                <div style="display:flex; align-items:center; gap:8px; white-space: nowrap;">
-                    <span class="font-bold text-danger">{{ a.current }}</span>
-                    <span class="text-muted" style="font-size: 0.8rem;">/ {{ a.min }} min</span>
-                    <button class="dismiss-dash-btn" data-name="{{ a.name }}" title="Dismiss for today"
-                        style="background:none;border:none;color:#bbb;font-size:1.1rem;cursor:pointer;padding:2px 5px;"
-                        onmouseover="this.style.color='#e53935'" onmouseout="this.style.color='#bbb'">✕</button>
-                </div>
-            </div>
-        </li>
-        {% endfor %}
-    </ul>
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
-        <a href="#" onclick="resetDashAlerts();return false;" style="font-size:0.75rem;color:#bbb;">Reset dismissed</a>
-        <a href="{{ url_for('inventory.inventory') }}" class="btn btn-sm btn-secondary">Manage Inventory &rarr;</a>
-    </div>
-</div>
-<script>
-    function getTodayIST() {
-        const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
-        return now.toISOString().slice(0, 10);
-    }
-    const DASH_ALERT_KEY = 'inv_dismissed_' + getTodayIST(); // same key as inventory page
-    function getDashDismissed() { try { return JSON.parse(localStorage.getItem(DASH_ALERT_KEY)) || []; } catch (e) { return []; } }
-    function dismissDashAlert(name) {
-        const el = document.getElementById('dalert-' + name.replace(/ /g, '_'));
-        if (el) el.style.display = 'none';
-        const d = getDashDismissed();
-        if (!d.includes(name)) d.push(name);
-        localStorage.setItem(DASH_ALERT_KEY, JSON.stringify(d));
-        const visible = [...document.querySelectorAll('.dash-alert-item')].filter(e => e.style.display !== 'none');
-        const box = document.getElementById('dash-alert-box');
-        if (box && visible.length === 0) box.style.display = 'none';
-    }
-    // Event delegation for dismiss buttons (avoids quoting issues)
-    document.addEventListener('click', function (e) {
-        const btn = e.target.closest('.dismiss-dash-btn');
-        if (btn) dismissDashAlert(btn.dataset.name);
-    });
-    function resetDashAlerts() {
-        localStorage.removeItem(DASH_ALERT_KEY);
-        document.querySelectorAll('.dash-alert-item').forEach(li => li.style.display = '');
-        const box = document.getElementById('dash-alert-box');
-        if (box) box.style.display = '';
-    }
-    (function () {
-        getDashDismissed().forEach(name => {
-            const el = document.getElementById('dalert-' + name.replace(/ /g, '_'));
-            if (el) el.style.display = 'none';
-        });
-        const visible = [...document.querySelectorAll('.dash-alert-item')].filter(e => e.style.display !== 'none');
-        const box = document.getElementById('dash-alert-box');
-        if (box && visible.length === 0) box.style.display = 'none';
-    })();
-</script>
-{% endif %}
-
-
-<!-- === RECENT SALES & PURCHASES === -->
+<!-- === RECENT SALES & PURCHASES (skeleton shown, filled by JS) === -->
 <div class="dashboard-grid">
 
+    <!-- Recent Sales -->
     {% if current_user.role in ['admin', 'sales'] %}
     <div class="card">
         <div class="flex-between mb-2">
             <h3 style="margin:0;">Recent Sales</h3>
-            <a href="{{ url_for('sales.sales_log') }}"
-                style="font-size:0.85rem; color:var(--primary); font-weight: 600;">View All</a>
+            <a href="{{ url_for('sales.sales_log') }}" style="font-size:0.85rem; color:var(--primary); font-weight:600;">View All</a>
         </div>
-        {% if not sales %}
-        <p class="text-muted text-center py-3">No recent sales.</p>
-        {% else %}
-        <div class="table-scroll-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th style="width: 25%;">Date</th>
-                        <th style="width: 35%;">Client</th>
-                        <th class="text-right" style="width: 20%;">Total</th>
-                        <th class="text-right" style="width: 20%;">Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for s in sales %}
-                    <tr>
-                        <td class="text-muted text-nowrap">{{ s.date }}</td>
-                        <td>
-                            <div style="max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
-                                title="{{ s.client }}">
-                                {{ s.client }}
-                            </div>
-                        </td>
-                        <td class="text-right font-bold text-nowrap">₹{{ "%.0f"|format(s.total) }}</td>
-                        <td class="text-right">
-                            <span class="status-badge {{ s.status_class }}"
-                                style="font-size: 0.75rem; padding: 2px 6px;">
-                                {{ s.status_label }}
-                            </span>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <div id="recent-sales-container">
+            <!-- Skeleton rows -->
+            <div style="padding: 8px 0;">
+                <div class="skeleton skeleton-row"></div>
+                <div class="skeleton skeleton-row skeleton-short"></div>
+                <div class="skeleton skeleton-row"></div>
+                <div class="skeleton skeleton-row skeleton-short"></div>
+                <div class="skeleton skeleton-row"></div>
+            </div>
         </div>
-        {% endif %}
     </div>
     {% endif %}
 
+    <!-- Recent Purchases -->
     {% if current_user.role in ['admin', 'purchase'] %}
     <div class="card">
         <div class="flex-between mb-2">
             <h3 style="margin:0;">Recent Purchases</h3>
-            <a href="{{ url_for('purchase.purchase_log') }}"
-                style="font-size:0.85rem; color:var(--primary); font-weight: 600;">View All</a>
+            <a href="{{ url_for('purchase.purchase_log') }}" style="font-size:0.85rem; color:var(--primary); font-weight:600;">View All</a>
         </div>
-        {% if not purchases %}
-        <p class="text-muted text-center py-3">No recent purchases.</p>
-        {% else %}
-        <div class="table-scroll-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th style="width: 25%;">Date</th>
-                        <th style="width: 40%;">Supplier</th>
-                        <th class="text-center" style="width: 15%;">Qty</th>
-                        <th class="text-right" style="width: 20%;">Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for p in purchases %}
-                    <tr>
-                        <td class="text-muted text-nowrap">{{ p.date }}</td>
-                        <td>
-                            <div style="max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
-                                title="{{ p.supplier }}">
-                                {{ p.supplier }}
-                            </div>
-                        </td>
-                        <td class="text-center font-bold" style="color:var(--primary);">+{{ p.qty }}</td>
-                        <td class="text-right">
-                            <span
-                                class="status-badge {{ 'status-received' if 'Received' in p.status else 'status-pending' }}"
-                                style="font-size: 0.75rem; padding: 2px 6px;">
-                                {{ p.status }}
-                            </span>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <div id="recent-purchases-container">
+            <!-- Skeleton rows -->
+            <div style="padding: 8px 0;">
+                <div class="skeleton skeleton-row"></div>
+                <div class="skeleton skeleton-row skeleton-short"></div>
+                <div class="skeleton skeleton-row"></div>
+                <div class="skeleton skeleton-row skeleton-short"></div>
+                <div class="skeleton skeleton-row"></div>
+            </div>
         </div>
-        {% endif %}
     </div>
     {% endif %}
+
 </div>
+
+<script>
+// ─── Dashboard Lazy Loader ───────────────────────────────────────────────────
+// Fetches all dashboard data AFTER page renders so login feels instant.
+
+function getTodayIST() {
+    const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    return now.toISOString().slice(0, 10);
+}
+
+const DASH_ALERT_KEY = 'inv_dismissed_' + getTodayIST();
+
+function getDashDismissed() {
+    try { return JSON.parse(localStorage.getItem(DASH_ALERT_KEY)) || []; } catch (e) { return []; }
+}
+
+function dismissDashAlert(name) {
+    const safeId = 'dalert-' + name.replace(/ /g, '_');
+    const el = document.getElementById(safeId);
+    if (el) el.style.display = 'none';
+    const d = getDashDismissed();
+    if (!d.includes(name)) d.push(name);
+    localStorage.setItem(DASH_ALERT_KEY, JSON.stringify(d));
+    const visible = [...document.querySelectorAll('.dash-alert-item')].filter(e => e.style.display !== 'none');
+    if (visible.length === 0) document.getElementById('dash-alert-box').style.display = 'none';
+}
+
+document.addEventListener('click', function (e) {
+    const btn = e.target.closest('.dismiss-dash-btn');
+    if (btn) dismissDashAlert(btn.dataset.name);
+});
+
+function resetDashAlerts() {
+    localStorage.removeItem(DASH_ALERT_KEY);
+    document.querySelectorAll('.dash-alert-item').forEach(li => li.style.display = '');
+    document.getElementById('dash-alert-box').style.display = '';
+}
+
+function renderSalesTable(sales) {
+    const container = document.getElementById('recent-sales-container');
+    if (!container) return;
+    if (!sales || sales.length === 0) {
+        container.innerHTML = '<p class="text-muted text-center py-3">No recent sales.</p>';
+        return;
+    }
+    let rows = sales.map(s => `
+        <tr>
+            <td class="text-muted text-nowrap">${s.date}</td>
+            <td><div style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${s.client}">${s.client}</div></td>
+            <td class="text-right font-bold text-nowrap">₹${Math.round(s.total)}</td>
+            <td class="text-right"><span class="status-badge ${s.status_class}" style="font-size:0.75rem;padding:2px 6px;">${s.status_label}</span></td>
+        </tr>`).join('');
+    container.innerHTML = `<div class="table-scroll-container"><table>
+        <thead><tr>
+            <th style="width:25%;">Date</th>
+            <th style="width:35%;">Client</th>
+            <th class="text-right" style="width:20%;">Total</th>
+            <th class="text-right" style="width:20%;">Status</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function renderPurchasesTable(purchases) {
+    const container = document.getElementById('recent-purchases-container');
+    if (!container) return;
+    if (!purchases || purchases.length === 0) {
+        container.innerHTML = '<p class="text-muted text-center py-3">No recent purchases.</p>';
+        return;
+    }
+    let rows = purchases.map(p => `
+        <tr>
+            <td class="text-muted text-nowrap">${p.date}</td>
+            <td><div style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.supplier}">${p.supplier}</div></td>
+            <td class="text-center font-bold" style="color:var(--primary);">+${p.qty}</td>
+            <td class="text-right"><span class="status-badge ${'Received' === p.status ? 'status-received' : 'status-pending'}" style="font-size:0.75rem;padding:2px 6px;">${p.status}</span></td>
+        </tr>`).join('');
+    container.innerHTML = `<div class="table-scroll-container"><table>
+        <thead><tr>
+            <th style="width:25%;">Date</th>
+            <th style="width:40%;">Supplier</th>
+            <th class="text-center" style="width:15%;">Qty</th>
+            <th class="text-right" style="width:20%;">Status</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function renderAlerts(alerts) {
+    const box = document.getElementById('dash-alert-box');
+    const list = document.getElementById('alert-list-body');
+    const badge = document.getElementById('alert-count-badge');
+    if (!alerts || alerts.length === 0) { box.style.display = 'none'; return; }
+
+    badge.textContent = alerts.length + ' Items';
+    const dismissed = getDashDismissed();
+    list.innerHTML = alerts.map(a => `
+        <li class="dash-alert-item" id="dalert-${a.name.replace(/ /g, '_')}"
+            style="margin-bottom:5px;border-bottom:1px dashed #eee;padding-bottom:5px;${dismissed.includes(a.name) ? 'display:none;' : ''}">
+            <div style="display:flex;justify-content:space-between;flex-wrap:wrap;align-items:center;">
+                <span><strong>${a.name}</strong> <small class="text-muted">(${a.category})</small></span>
+                <div style="display:flex;align-items:center;gap:8px;white-space:nowrap;">
+                    <span class="font-bold text-danger">${a.current}</span>
+                    <span class="text-muted" style="font-size:0.8rem;">/ ${a.min} min</span>
+                    <button class="dismiss-dash-btn" data-name="${a.name}" title="Dismiss for today"
+                        style="background:none;border:none;color:#bbb;font-size:1.1rem;cursor:pointer;padding:2px 5px;"
+                        onmouseover="this.style.color='#e53935'" onmouseout="this.style.color='#bbb'">✕</button>
+                </div>
+            </div>
+        </li>`).join('');
+
+    const visible = [...document.querySelectorAll('.dash-alert-item')].filter(e => e.style.display !== 'none');
+    box.style.display = visible.length > 0 ? '' : 'none';
+}
+function renderStats(stats, role) {
+    if (role === 'admin' || role === 'sales') {
+        const rev = document.getElementById('stat-revenue');
+        const pend = document.getElementById('stat-pending');
+        if (rev) rev.textContent = '\u20B9' + Math.round(stats.revenue);
+        if (pend) {
+            pend.textContent = stats.pending_bills;
+            if (stats.pending_bills > 0) pend.style.color = 'var(--danger)';
+        }
+    } else {
+        const bar = document.getElementById('stats-bar-wrapper');
+        if (bar) bar.style.display = 'none';
+    }
+}
+
+// ── Fetch everything after the page is visible ──
+window.addEventListener('DOMContentLoaded', function () {
+    fetch('/dashboard_data')
+        .then(r => r.json())
+        .then(data => {
+            renderStats(data.today_stats, data.role);
+            renderSalesTable(data.sales);
+            renderPurchasesTable(data.purchases);
+        })
+        .catch(err => {
+            console.error('Dashboard data load failed:', err);
+            ['recent-sales-container', 'recent-purchases-container'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.innerHTML = '<p class="text-muted text-center py-3">Could not load data.</p>';
+            });
+            ['stat-revenue', 'stat-pending'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = '\u2014';
+            });
+        });
+});
+</script>
 {% endblock %}

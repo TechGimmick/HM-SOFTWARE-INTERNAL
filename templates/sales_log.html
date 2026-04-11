@@ -65,8 +65,11 @@
     <div class="filter-bar" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;">
 
         <div class="form-group mb-0" style="flex: 2; min-width: 200px;">
-            <label>🔎 Search Customer Name</label>
-            <input type="text" id="filter-name" placeholder="Type name..." onkeyup="filterNames()">
+            <label>🔎 Search Customer Name <small class="text-muted">(History)</small></label>
+            <div style="display: flex; gap: 5px;">
+                <input type="text" id="filter-client" value="{{ current_filter_client or '' }}" placeholder="Press Enter to search all history..." onkeydown="if(event.key === 'Enter') applyFilters()">
+                <button type="button" class="btn btn-primary" onclick="applyFilters()" style="padding: 0 15px; border-radius: 6px;">Search</button>
+            </div>
         </div>
 
         <div class="form-group mb-0" style="flex: 1; min-width: 150px;">
@@ -378,34 +381,17 @@
     function applyFilters() {
         const status = document.getElementById('filter-status').value;
         const date = document.getElementById('filter-date').value;
+        const client = document.getElementById('filter-client').value.trim();
 
         const params = new URLSearchParams();
         if (status && status !== 'all') params.append('filter_status', status);
         if (date) params.append('filter_date', date);
+        if (client) params.append('filter_client', client);
 
         window.location.href = `?${params.toString()}`;
     }
 
-    // Client-side name filter only (Visual)
-    function filterNames() {
-        const nameFilter = document.getElementById('filter-name').value.toLowerCase();
-        const dateGroups = document.querySelectorAll('.date-group-wrapper');
 
-        dateGroups.forEach(group => {
-            const items = group.querySelectorAll('.search-item');
-            let visibleCount = 0;
-            items.forEach(item => {
-                const clientName = item.getAttribute('data-client');
-                if (clientName.includes(nameFilter)) {
-                    item.style.display = 'block';
-                    visibleCount++;
-                } else {
-                    item.style.display = 'none';
-                }
-            });
-            group.style.display = (visibleCount === 0) ? 'none' : 'block';
-        });
-    }
 
     function resetFilters() {
         // Clear all query params to reset to default view
