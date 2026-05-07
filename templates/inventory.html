@@ -36,7 +36,115 @@
 
         <div style="flex-grow: 1;"></div>
 
+        <button class="btn btn-secondary" onclick="document.getElementById('warehouse-modal').style.display='flex'">🏢 Manage Warehouses</button>
+        <button class="btn btn-secondary" onclick="document.getElementById('transfer-modal').style.display='flex'">🚚 Transfer Stock</button>
+
         <a href="#" id="btn-download-inv" class="btn btn-primary" style="display:none;">Download Report</a>
+    </div>
+</div>
+
+<!-- WAREHOUSE MODAL -->
+<div id="warehouse-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>🏢 Manage Warehouses</h3>
+            <button class="close-btn" onclick="document.getElementById('warehouse-modal').style.display='none'">✕</button>
+        </div>
+        <div class="modal-body">
+            <ul style="list-style:none; padding:0; margin-bottom: 20px;">
+                {% for w in warehouses %}
+                <li style="padding: 10px; border-bottom: 1px solid #ddd; display: flex; flex-direction: column; gap: 5px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span><strong>{{ w.name }}</strong> <small class="text-muted">{{ w.location }}</small></span>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('edit-wh-{{ w.id }}').style.display='block'">Edit</button>
+                    </div>
+                    <form id="edit-wh-{{ w.id }}" action="{{ url_for('inventory.edit_warehouse') }}" method="POST" style="display:none; margin-top: 10px; border: 1px solid #ddd; padding: 10px; border-radius: 5px; background: #fafafa;">
+                        <input type="hidden" name="warehouse_id" value="{{ w.id }}">
+                        <div class="form-group" style="margin-bottom: 5px;">
+                            <label style="font-size: 0.85rem;">Name</label>
+                            <input type="text" name="warehouse_name" value="{{ w.name }}" required style="padding: 4px;">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 5px;">
+                            <label style="font-size: 0.85rem;">Location</label>
+                            <input type="text" name="warehouse_location" value="{{ w.location }}" style="padding: 4px;">
+                        </div>
+                        <button type="submit" class="btn btn-success" style="padding: 4px 10px;">Save</button>
+                        <button type="button" class="btn btn-secondary" style="padding: 4px 10px;" onclick="document.getElementById('edit-wh-{{ w.id }}').style.display='none'">Cancel</button>
+                    </form>
+                </li>
+                {% endfor %}
+            </ul>
+            <h4>Add New Warehouse</h4>
+            <form action="{{ url_for('inventory.add_warehouse') }}" method="POST">
+                <div class="form-group">
+                    <label>Warehouse Name</label>
+                    <input type="text" name="warehouse_name" required>
+                </div>
+                <div class="form-group">
+                    <label>Location (Optional)</label>
+                    <input type="text" name="warehouse_location">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:100%;">Add Warehouse</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- TRANSFER MODAL -->
+<div id="transfer-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>🚚 Transfer Stock</h3>
+            <button class="close-btn" onclick="document.getElementById('transfer-modal').style.display='none'">✕</button>
+        </div>
+        <div class="modal-body">
+            <form action="{{ url_for('inventory.transfer_stock') }}" method="POST">
+                <div class="form-group">
+                    <label>Product</label>
+                    <select name="product_id" required>
+                        <option value="">Select Product...</option>
+                        {% for item in summary %}
+                        <option value="{{ item['Product ID']|default(0) }}">{{ item['Product Name'] }} (Total: {{ item['Current Stock'] }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>From Warehouse</label>
+                    <select name="from_warehouse_id" required>
+                        <option value="">Select Origin...</option>
+                        {% for w in warehouses %}
+                        <option value="{{ w.id }}">{{ w.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>To Warehouse</label>
+                    <select name="to_warehouse_id" required>
+                        <option value="">Select Destination...</option>
+                        {% for w in warehouses %}
+                        <option value="{{ w.id }}">{{ w.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Quantity</label>
+                    <input type="number" name="transfer_qty" required min="1">
+                </div>
+                <div class="form-group">
+                    <label>Transfer Date & Time (Optional)</label>
+                    <input type="datetime-local" name="transfer_date">
+                </div>
+                <div class="form-group">
+                    <label>Delivery Method / Carrier</label>
+                    <input type="text" name="delivery_method" placeholder="e.g. Courier, Local Truck">
+                </div>
+                <div class="form-group">
+                    <label>Reference / Note</label>
+                    <input type="text" name="reference">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:100%;">Transfer</button>
+            </form>
+        </div>
     </div>
 </div>
 
@@ -100,14 +208,26 @@
             <tbody>
                 {% for item in summary %}
                 <tr class="inv-row" data-category="{{ item['Category'] }}" data-supplier="{{ item['Supplier'] }}"
-                    style="{{ 'background-color: #ffebee;' if item['Current Stock'] <= item['Min Stock'] else '' }}">
+                    style="cursor: pointer; {{ 'background-color: #ffebee;' if item['Current Stock'] <= item['Min Stock'] else '' }}"
+                    onclick="showTransferInfo({{ item['Product ID']|default(0) }}, '{{ item['Product Name']|replace('\'', '\\\'') }}')">
                     <td class="text-muted">{{ item['Category'] }}</td>
                     <td>{{ item['Product Name'] }}</td>
                     <td>{{ item['HSN'] or '-' }}</td>
                     <td class="text-muted" style="font-size:0.8rem;">{{ item['Barcode'] or '' }}</td>
                     <td class="text-primary">{{ item['Supplier'] }}</td>
                     <td>{{ "%.2f"|format(item['MRP']) }}</td>
-                    <td class="font-bold">{{ item['Current Stock'] }}</td>
+                    <td>
+                        <div class="font-bold">{{ item['Current Stock'] }}</div>
+                        <div style="font-size: 0.75rem; color: #666; margin-top: 4px;">
+                            {% for w_name, w_qty in item.get('WarehouseStocks', {}).items() %}
+                                {% if w_qty > 0 %}
+                                    <span style="display: inline-block; background: #eee; padding: 2px 6px; border-radius: 4px; margin: 1px;">
+                                        {{ w_name }}: <b>{{ w_qty }}</b>
+                                    </span>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -115,6 +235,18 @@
         <p id="no-rows-msg" style="display:none;" class="text-center p-3 text-muted">No products found.</p>
     </div>
     {% endif %}
+</div>
+
+<!-- TRANSFER INFO MODAL -->
+<div id="transferInfoModal" class="modal-overlay" style="display:none; align-items:center; justify-content:center; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999;">
+    <div class="modal-content" style="background:#fff; padding:20px; border-radius:8px; max-width:400px; width:90%; position:relative;">
+        <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #ddd; padding-bottom:10px; margin-bottom:15px;">
+            <h3 style="margin:0; font-size:1.2rem; color:#0056b3;">📦 Last Stock Transfer</h3>
+            <button class="close-btn" style="background:none; border:none; font-size:1.5rem; cursor:pointer;" onclick="document.getElementById('transferInfoModal').style.display='none'">✕</button>
+        </div>
+        <div id="transferInfoBody">
+        </div>
+    </div>
 </div>
 
 <script>
@@ -262,5 +394,53 @@
         // Reset all rows so next filter sees them
         document.querySelectorAll('.inv-row').forEach(row => row.style.display = '');
     }
+
+    // --- SHOW LAST TRANSFER INFO ---
+    function showTransferInfo(productId, productName) {
+        if (!productId) return;
+        const modal = document.getElementById('transferInfoModal');
+        const body = document.getElementById('transferInfoBody');
+        modal.style.display = 'flex';
+        body.innerHTML = '<p class="text-center text-muted" style="margin:20px 0;">Loading data...</p>';
+        
+        fetch('/api/last_transfer/' + productId)
+            .then(res => res.json())
+            .then(data => {
+                if(data.found) {
+                    body.innerHTML = `
+                        <h5 style="margin-bottom:15px; color:#333; font-weight:bold;">${productName}</h5>
+                        <div style="background:#f8f9fa; padding:15px; border-radius:5px; border:1px solid #eee;">
+                            <p style="margin-bottom:8px; font-size:0.95rem;"><strong>Date:</strong> ${data.date} at ${data.time}</p>
+                            <p style="margin-bottom:8px; font-size:0.95rem;"><strong>Quantity:</strong> <span style="background:#28a745; color:white; padding:2px 6px; border-radius:3px; font-weight:bold;">${data.qty}</span></p>
+                            <p style="margin-bottom:8px; font-size:0.95rem;"><strong>From:</strong> ${data.from_warehouse} <br><strong>To:</strong> ${data.to_warehouse}</p>
+                            <p style="margin-bottom:8px; font-size:0.95rem;"><strong>Delivery:</strong> ${data.delivery_method}</p>
+                            <p style="margin-bottom:0; font-size:0.95rem;"><strong>Reference:</strong> ${data.reference}</p>
+                        </div>
+                    `;
+                } else {
+                    body.innerHTML = `
+                        <h5 style="margin-bottom:15px; color:#333; font-weight:bold;">${productName}</h5>
+                        <div style="background:#fff3cd; color:#856404; padding:15px; border-radius:5px; border:1px solid #ffeeba;">
+                            No previous stock transfer records found for this item.
+                        </div>
+                    `;
+                }
+            }).catch(err => {
+                body.innerHTML = '<p class="text-danger" style="margin:20px 0;">Error loading transfer data.</p>';
+            });
+    }
+
+    // Close modals on outside click
+    window.onclick = function(event) {
+        if (event.target == document.getElementById('transferInfoModal')) {
+            document.getElementById('transferInfoModal').style.display = 'none';
+        }
+        if (event.target == document.getElementById('transfer-modal')) {
+            document.getElementById('transfer-modal').style.display = 'none';
+        }
+        if (event.target == document.getElementById('warehouse-modal')) {
+            document.getElementById('warehouse-modal').style.display = 'none';
+        }
+    };
 </script>
 {% endblock %}

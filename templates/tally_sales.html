@@ -1,0 +1,762 @@
+{% extends "_layout.html" %}
+
+{% block content %}
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
+    <h2>Tally Bills Log</h2>
+    <div class="d-flex gap-2">
+        <button type="button" class="btn btn-warning shadow-sm fw-bold border-dark" onclick="openDueBillsModal()">
+            <i class="bi bi-bell-fill"></i> Show Today's Due Bills
+        </button>
+        <button type="button" class="btn btn-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#newTallyModal">
+            <i class="bi bi-plus-circle me-1"></i> + Add New Tally Invoice
+        </button>
+    </div>
+</div>
+
+<div class="card mb-3 shadow-sm border-0" style="background: #f8f9fa;">
+    <div class="card-body p-3">
+        <div class="filter-bar d-flex gap-3 flex-wrap align-items-end">
+            <div class="form-group mb-0" style="flex: 1; min-width: 150px;">
+                <label class="fw-bold text-secondary text-uppercase mb-1" style="font-size:0.8rem;">Filter Status</label>
+                <select id="filter-status" class="form-select border-secondary" onchange="applyFilters()">
+                    <option value="all" {% if current_filter_status=='all' %}selected{% endif %}>Show All</option>
+                    <option value="partial" {% if current_filter_status=='partial' %}selected{% endif %}>Partial / Pending</option>
+                    <option value="full_cash" {% if current_filter_status=='full_cash' %}selected{% endif %}>Full Payment (Cash)</option>
+                    <option value="full_online" {% if current_filter_status=='full_online' %}selected{% endif %}>Full Payment (Online)</option>
+                    <option value="received" {% if current_filter_status=='received' %}selected{% endif %}>Any Full Payment</option>
+                </select>
+            </div>
+
+            <div class="form-group mb-0" style="flex: 1; min-width: 150px;">
+                <label class="fw-bold text-secondary text-uppercase mb-1" style="font-size:0.8rem;">Filter Overdue</label>
+                <select id="filter-overdue" class="form-select border-secondary" onchange="applyFilters()">
+                    <option value="all" {% if current_filter_overdue=='all' %}selected{% endif %}>Show All Credit</option>
+                    <option value="matured" {% if current_filter_overdue=='matured' %}selected{% endif %}>Matured / Overdue</option>
+                    <option value="overdue_10" {% if current_filter_overdue=='overdue_10' %}selected{% endif %}>Overdue > 10 Days</option>
+                    <option value="overdue_30" {% if current_filter_overdue=='overdue_30' %}selected{% endif %}>Overdue > 30 Days</option>
+                </select>
+            </div>
+
+            <div class="form-group mb-0" style="flex: 2; min-width: 200px;">
+                <label class="fw-bold text-secondary text-uppercase mb-1" style="font-size:0.8rem;">Search Invoice No.</label>
+                <div class="d-flex gap-2">
+                    <input type="text" id="filter-inv" class="form-control border-secondary" value="{{ current_filter_inv or '' }}" placeholder="Press Enter to search..." onkeydown="if(event.key === 'Enter') applyFilters()">
+                    <button type="button" class="btn btn-primary shadow-sm" onclick="applyFilters()"><i class="bi bi-search"></i></button>
+                </div>
+            </div>
+
+            <div class="form-group mb-0" style="flex: 1; min-width: 150px;">
+                <label class="fw-bold text-secondary text-uppercase mb-1" style="font-size:0.8rem;">Filter Date</label>
+                <input type="date" id="filter-date" class="form-control border-secondary" value="{{ current_filter_date or '' }}" onchange="applyFilters()" style="width:100%;">
+            </div>
+
+            <button class="btn btn-outline-secondary px-4 fw-bold shadow-sm" onclick="resetFilters()" style="height: 38px;">RESET</button>
+        </div>
+    </div>
+</div>
+
+<!-- Logs Dropdown Cards view -->
+    {% if not tally_bills %}
+    <div class="card shadow-sm border-0"><div class="card-body p-4 text-center text-muted">No tally invoices recorded yet. Click "Add New Tally Invoice" to start!</div></div>
+    {% else %}
+    <div class="log-tree mt-3">
+        {% for date_key, date_bills in tally_bills.items() %}
+        <div class="date-group-wrapper mb-4">
+            
+            <div class="sticky-date-header mb-3">
+                <h5 class="mb-0 p-2 bg-light rounded border border-light-subtle d-inline-block shadow-sm">
+                    <span class="text-primary fw-bold"><i class="bi bi-calendar-day me-1"></i> {{ date_key }}</span>
+                    <span class="text-muted ms-2" style="font-size: 0.9rem; font-weight:normal;">({{ date_bills|length }} Bills)</span>
+                </h5>
+            </div>
+
+            {% for tally in date_bills %}
+        <details class="bill-item search-item mb-3 border rounded shadow-sm bg-white" style="cursor: pointer;">
+            <summary class="bill-summary p-3" style="list-style: none;">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                    <div style="flex: 1; min-width: 200px;">
+                        <strong class="d-block text-primary" style="font-size: 1.1rem;">Invoice #{{ tally.invoice_number }}</strong>
+                        <span class="text-muted small"><i class="bi bi-calendar3"></i> {{ tally.date.strftime('%d %b %Y') }}</span>
+                    </div>
+
+                    <div style="flex: 1;" class="d-flex gap-2 align-items-center">
+                        {% if tally.order_status == 'Order Sent' %}
+                            <span class="badge bg-primary"><i class="bi bi-check2-all"></i> Sent (Deducted)</span>
+                        {% else %}
+                            <span class="badge bg-warning text-dark">Pending</span>
+                        {% endif %}
+                        
+                        {% if tally.payment_status == 'Payment Received' %}
+                            <span class="badge bg-success">Received</span>
+                        {% elif tally.payment_status == 'Partial Payment' %}
+                            <span class="badge bg-info text-dark">Partial</span>
+                        {% else %}
+                            <span class="badge bg-danger">Pending</span>
+                        {% endif %}
+                    </div>
+
+                    <div class="text-end d-flex align-items-center gap-3" style="flex: 1; justify-content: flex-end;">
+                        <strong class="fs-5 text-dark">₹{{ "%.2f"|format(tally.grand_total) }}</strong>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openUpdateStatusModal({{ tally.id }}, '{{ tally.order_status }}', {{ tally.grand_total or 0 }}, '{{ tally.payment_mode or '' }}', {{ tally.paid_cash or 0 }}, {{ tally.paid_online or 0 }})">Edit Status</button>
+                    </div>
+                </div>
+            </summary>
+
+            <div class="bill-details p-3 bg-light border-top">
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered bg-white mb-3">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Product Name</th>
+                                <th class="text-center" style="width: 100px;">Qty Sold</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in tally.items %}
+                            <tr>
+                                <td>{{ item.product_name }}</td>
+                                <td class="text-center fw-bold text-primary">{{ item.qty }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mt-2">
+                    <div>
+                        <span class="text-muted small me-3"><i class="bi bi-calendar-event"></i> <strong>Credit Days:</strong> {{ tally.credit_period or '0' }}</span>
+                        <span class="text-muted small"><i class="bi bi-wallet2"></i> <strong>Payment Mode:</strong> {{ tally.payment_mode or '-' }}</span>
+                    </div>
+                    <form method="POST" action="{{ url_for('tally.delete_tally_bill', tally_id=tally.id) }}" style="margin: 0;" onsubmit="return confirm('Are you sure you want to delete this bill? Note: Deleting an Order Sent bill will reverse the stock deduction.');">
+                        <button type="submit" class="btn btn-sm btn-outline-danger shadow-sm"><i class="bi bi-trash"></i> Delete Invoice</button>
+                    </form>
+                </div>
+            </div>
+        </details>
+        {% endfor %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+<!-- Update Status Modal -->
+<div class="modal fade" id="updateStatusModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title fw-bold">Update Bill Status</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <form id="updateStatusForm" method="POST" action="{{ url_for('tally.update_tally_status') }}">
+                    <input type="hidden" name="tally_id" id="update_tally_id">
+                    
+                    <ul class="nav nav-tabs mb-3" id="statusTabs" role="tablist">
+                      <li class="nav-item" role="presentation">
+                        <button class="nav-link active fw-bold" id="order-tab" data-bs-toggle="tab" data-bs-target="#orderTab" type="button" role="tab">Order Status</button>
+                      </li>
+                      <li class="nav-item" role="presentation">
+                        <button class="nav-link fw-bold" id="payment-tab" data-bs-toggle="tab" data-bs-target="#paymentTab" type="button" role="tab">Payment Status</button>
+                      </li>
+                    </ul>
+
+                    <input type="hidden" name="status_type" id="status_type_input" value="order">
+
+                    <div class="tab-content" id="statusTabContent">
+                        <!-- Order Status Tab -->
+                        <div class="tab-pane fade show active" id="orderTab" role="tabpanel">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Update Order Status</label>
+                                <select class="form-select p-2 border-warning" name="new_status" id="update_order_status">
+                                    <option value="Order Pending">Order Pending (Restores Inventory)</option>
+                                    <option value="Order Sent">Order Sent (Deducts Inventory)</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Warehouse (For Inventory Updates)</label>
+                                <select class="form-select p-2 border-primary" name="warehouse_id">
+                                    {% for w in warehouses %}
+                                    <option value="{{ w.id }}">{{ w.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Payment Status Tab -->
+                        <div class="tab-pane fade" id="paymentTab" role="tabpanel">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Total Amount (₹)</label>
+                                <input type="number" step="0.01" class="form-control p-2 border-warning fw-bold text-primary" name="grand_total" id="update_grand_total" value="0">
+                            </div>
+
+                            <div class="mb-3" id="update_payment_details_sec">
+                                <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Payment Mode</label>
+                                <select class="form-select p-2 mb-3 border-warning" name="payment_mode" id="update_payment_mode">
+                                    <option value="">- Select Mode (Optional) -</option>
+                                    <option value="Cash">Cash</option>
+                                    <option value="Online">Online</option>
+                                    <option value="Both">Both (Cash & Online)</option>
+                                </select>
+                                
+                                <div class="row gx-3">
+                                    <div class="col-6 mb-3" id="update_cash_div" style="display:none;">
+                                        <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Cash (₹)</label>
+                                        <input type="number" step="0.01" class="form-control" name="cash_amount" id="update_cash_amount">
+                                    </div>
+                                    <div class="col-6 mb-3" id="update_online_div" style="display:none;">
+                                        <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Online (₹)</label>
+                                        <input type="number" step="0.01" class="form-control" name="online_amount" id="update_online_amount">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="modal-footer px-0 pb-0 mt-3 border-0">
+                        <button type="button" class="btn btn-outline-dark px-4" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-warning fw-bold px-4">Update Status</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add New Tally Invoice Modal -->
+<div class="modal fade" id="newTallyModal" tabindex="-1" aria-labelledby="newTallyModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title fw-bold" id="newTallyModalLabel">New Tally Invoice</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-4">
+        
+        <form id="tallyForm" method="POST" action="{{ url_for('tally.save_tally') }}">
+            <!-- Row 1 -->
+            <!-- Row 1 -->
+            <div class="row gx-3 mb-3">
+                <div class="col-md-6 form-group mb-3 mb-md-0">
+                    <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Invoice Number</label>
+                    <input type="text" class="form-control p-2" name="invoice_number" placeholder="e.g. INV-2034" required>
+                </div>
+                <div class="col-md-6 form-group mb-3 mb-md-0">
+                    <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Credit Period (Days)</label>
+                    <input type="number" class="form-control p-2" name="credit_period" id="tally_credit_period" placeholder="e.g. 15, 30" value="0" min="0">
+                </div>
+                <div class="col-md-4 form-group mb-3 mb-md-0">
+                    <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Dispatch Warehouse</label>
+                    <select class="form-select p-2" name="warehouse_id" required>
+                        {% for w in warehouses %}
+                        <option value="{{ w.id }}">{{ w.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <!-- Mini Cart Entry Area -->
+            <div class="p-3 bg-light border border-secondary border-opacity-25 rounded mb-3">
+                <h6 class="fw-bold text-dark mb-3"><i class="bi bi-cart-plus"></i> Add Products to Bill</h6>
+                <div class="row gx-2">
+                    <div class="col-md-7 position-relative mb-2 mb-md-0">
+                        <input type="hidden" id="product_id_input">
+                        <input type="text" class="form-control p-2 border-secondary" id="product_search" placeholder="Enter product name or select..." autocomplete="off">
+                        <div id="product_stock_info" class="mt-1 small fw-bold" style="display:none;"></div>
+                        <div id="search_results" class="search-dropdown" style="display:none; position:absolute; top:100%; left:10px; right:10px; background:#fff; border:1px solid #ccc; max-height:200px; overflow-y:auto; z-index:1050; box-shadow:0px 4px 6px rgba(0,0,0,0.1);"></div>
+                    </div>
+                    <div class="col-md-3 mb-2 mb-md-0">
+                        <input type="number" class="form-control p-2 border-secondary" id="qty_input" placeholder="Qty" min="1" value="1">
+                    </div>
+                    <div class="col-md-2">
+                        <button type="button" class="btn btn-secondary w-100 fw-bold p-2" id="btn_add_to_cart_tally">Add</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="table-responsive mb-4">
+                <table class="table table-sm table-bordered bg-white shadow-sm">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Product Name</th>
+                            <th class="text-center" style="width:100px;">Qty</th>
+                            <th class="text-center" style="width:50px;">Remove</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tally_cart_table_body">
+                        <tr id="empty_cart_row">
+                            <td colspan="3" class="text-center text-muted py-3">No products added.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <input type="hidden" name="tally_cart" id="tally_cart_json">
+            
+            <div class="mb-4 bg-light p-3 rounded border border-primary border-opacity-25">
+                <label class="form-label fw-bold text-primary text-uppercase tally-form-label mb-1">Total Amount to be Paid (₹)</label>
+                <input type="number" step="0.01" class="form-control form-control-lg border-primary text-primary fw-bold" name="grand_total" id="grand_total" placeholder="0.00" required>
+            </div>
+
+            <hr class="text-muted mb-4">
+
+            <!-- Payment Status -->
+            <div class="mb-4">
+                <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Payment Done?</label>
+                <div class="input-group">
+                    <select class="form-select p-2 border-primary tally-select-heavy" id="paymentDoneSelect" name="payment_done">
+                        <option value="No" selected>No, Payment is Pending</option>
+                        <option value="Yes">Yes, Payment Received</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Payment Details (Hidden by default) -->
+            <div id="paymentDetailsSection" class="p-3 bg-light rounded border border-light-subtle d-none">
+                <h6 class="mb-3 fw-bold text-primary">Payment Details</h6>
+                
+                <div class="row gx-3 mb-3">
+                    <div class="col-md-6 form-group mb-3 mb-md-0">
+                        <label class="form-label fw-bold text-secondary tally-detail-label">Payment Date</label>
+                        <input type="date" class="form-control" name="payment_date" id="payment_date">
+                    </div>
+                    <div class="col-md-6 form-group mb-3 mb-md-0">
+                        <label class="form-label fw-bold text-secondary tally-detail-label">Payment Mode</label>
+                        <select class="form-select" id="paymentModeSelect" name="payment_mode">
+                            <option value="Cash" selected>Cash</option>
+                            <option value="Online">Online</option>
+                            <option value="Both">Both (Cash & Online)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row gx-3" id="amountFields">
+                    <div class="col-md-6 form-group mb-2 mb-md-0" id="cashAmountDiv">
+                        <label class="form-label fw-bold text-secondary tally-detail-label">Cash Amount (₹)</label>
+                        <input type="number" step="0.01" class="form-control" name="cash_amount" id="new_cash_amount" placeholder="0.00">
+                    </div>
+                    <div class="col-md-6 form-group mb-2 mb-md-0 d-none" id="onlineAmountDiv">
+                        <label class="form-label fw-bold text-secondary tally-detail-label">Online Amount (₹)</label>
+                        <input type="number" step="0.01" class="form-control" name="online_amount" id="new_online_amount" placeholder="0.00">
+                    </div>
+                </div>
+                
+                <div id="new_balance_display" class="mt-3 fw-bold fs-5 text-end" style="display:none;"></div>
+            </div>
+
+            <!-- Contact Details (Hidden by default) -->
+            <div id="contact_details_sec" class="mb-4 p-3 bg-light rounded border border-info border-opacity-50 d-none">
+                <h6 class="mb-3 fw-bold text-info"><i class="bi bi-person-lines-fill"></i> Customer Contact (For Pending/Credit)</h6>
+                <div class="row gx-3">
+                    <div class="col-md-6 form-group mb-3 mb-md-0">
+                        <label class="form-label fw-bold text-secondary tally-detail-label">Email (Optional)</label>
+                        <input type="email" class="form-control" name="customer_email" placeholder="email@example.com">
+                    </div>
+                    <div class="col-md-6 form-group mb-2 mb-md-0">
+                        <label class="form-label fw-bold text-secondary tally-detail-label">Phone (Optional)</label>
+                        <input type="text" class="form-control" name="customer_phone" placeholder="e.g. 9876543210" pattern="[0-9]{10}" title="Please enter a valid 10-digit phone number">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal-footer bg-light border-top-0 d-flex flex-wrap gap-2 justify-content-end mt-4 px-0 pb-0">
+                <button type="button" class="btn btn-outline-secondary px-4 w-100 w-sm-auto" style="max-width: fit-content;" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-primary px-4 fw-bold w-100 w-sm-auto" style="max-width: fit-content;" id="saveTallyBtn">Save Tally Invoice</button>
+            </div>
+        </form>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Due Bills Modal -->
+<div class="modal fade" id="dueBillsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i> Today's Due Bills</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4 bg-light" id="dueBillsContent">
+                <div class="text-center text-muted col-12 py-5">
+                    <div class="spinner-border mb-3" role="status"></div>
+                    <p>Loading due bills...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        // Set today's date as the default for payment date
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('payment_date').value = today;
+
+        const paymentDoneSelect = document.getElementById('paymentDoneSelect');
+        const paymentDetailsSection = document.getElementById('paymentDetailsSection');
+        const paymentModeSelect = document.getElementById('paymentModeSelect');
+        const cashAmountDiv = document.getElementById('cashAmountDiv');
+        const onlineAmountDiv = document.getElementById('onlineAmountDiv');
+
+        paymentDoneSelect.addEventListener('change', function() {
+            if (this.value === 'Yes') {
+                paymentDetailsSection.classList.remove('d-none');
+            } else {
+                paymentDetailsSection.classList.add('d-none');
+            }
+        });
+
+        paymentModeSelect.addEventListener('change', function() {
+            if (this.value === 'Cash') {
+                cashAmountDiv.classList.remove('d-none');
+                onlineAmountDiv.classList.add('d-none');
+                
+                cashAmountDiv.classList.remove('col-md-6');
+                cashAmountDiv.classList.add('col-md-12');
+            } else if (this.value === 'Online') {
+                cashAmountDiv.classList.add('d-none');
+                onlineAmountDiv.classList.remove('d-none');
+                
+                onlineAmountDiv.classList.remove('col-md-6');
+                onlineAmountDiv.classList.add('col-md-12');
+            } else if (this.value === 'Both') {
+                cashAmountDiv.classList.remove('d-none');
+                onlineAmountDiv.classList.remove('d-none');
+                
+                cashAmountDiv.classList.remove('col-md-12');
+                cashAmountDiv.classList.add('col-md-6');
+                
+                onlineAmountDiv.classList.remove('col-md-12');
+                onlineAmountDiv.classList.add('col-md-6');
+            }
+        });
+
+        // Trigger change initially to set correct classes
+        paymentModeSelect.dispatchEvent(new Event('change'));
+        
+        // Balance Calculator logic
+        function calcBalance() {
+            let gt = parseFloat(document.getElementById('grand_total').value) || 0;
+            let cash = parseFloat(document.getElementById('new_cash_amount').value) || 0;
+            let online = parseFloat(document.getElementById('new_online_amount').value) || 0;
+            let bal = gt - (cash + online);
+            
+            const balDiv = document.getElementById('new_balance_display');
+            
+            if (document.getElementById('paymentDoneSelect').value === 'Yes') {
+                balDiv.style.display = 'block';
+                if (bal > 0) {
+                    balDiv.innerHTML = `Balance Remaining: ₹${bal.toFixed(2)}`;
+                    balDiv.className = "mt-3 fw-bold fs-5 text-end text-danger";
+                } else if (bal < 0) {
+                    balDiv.innerHTML = `Overpayment: ₹${Math.abs(bal).toFixed(2)}`;
+                    balDiv.className = "mt-3 fw-bold fs-5 text-end text-warning";
+                } else {
+                    balDiv.innerHTML = `Fully Settled <i class="bi bi-check-circle-fill"></i>`;
+                    balDiv.className = "mt-3 fw-bold fs-5 text-end text-success";
+                }
+            } else {
+                balDiv.style.display = 'none';
+            }
+            
+            evaluateContactFields(bal);
+        }
+        
+        function evaluateContactFields(currentBalance) {
+            const cp = parseInt(document.getElementById('tally_credit_period').value) || 0;
+            const pDone = document.getElementById('paymentDoneSelect').value;
+            
+            let isPendingOrPartial = false;
+            if (pDone === 'No') {
+                isPendingOrPartial = true;
+            } else if (currentBalance > 0) {
+                isPendingOrPartial = true;
+            }
+            
+            const contactSec = document.getElementById('contact_details_sec');
+            if (cp > 0 && isPendingOrPartial) {
+                contactSec.classList.remove('d-none');
+            } else {
+                contactSec.classList.add('d-none');
+            }
+        }
+        
+        document.getElementById('grand_total').addEventListener('input', calcBalance);
+        document.getElementById('new_cash_amount').addEventListener('input', calcBalance);
+        document.getElementById('new_online_amount').addEventListener('input', calcBalance);
+        document.getElementById('tally_credit_period').addEventListener('input', calcBalance);
+        paymentDoneSelect.addEventListener('change', calcBalance);
+        
+        
+        // Autocomplete Logic for Products
+        const productSearch = document.getElementById('product_search');
+        const searchResults = document.getElementById('search_results');
+        const productIdInput = document.getElementById('product_id_input');
+        const btnAddCart = document.getElementById('btn_add_to_cart_tally');
+        const qtyInput = document.getElementById('qty_input');
+        const cartBody = document.getElementById('tally_cart_table_body');
+        const jsonInput = document.getElementById('tally_cart_json');
+        
+        let tallyCartMap = [];
+        
+        // We receive this natively from backend
+        let allProducts = [];
+        try {
+            allProducts = {{ all_products_json | safe }};
+        } catch(e) {
+            console.error("Products failed to load", e);
+        }
+        
+        function renderTallyCart() {
+            if (tallyCartMap.length === 0) {
+                cartBody.innerHTML = '<tr id="empty_cart_row"><td colspan="3" class="text-center text-muted py-3">No products added.</td></tr>';
+            } else {
+                cartBody.innerHTML = '';
+                tallyCartMap.forEach((item, index) => {
+                    cartBody.innerHTML += `
+                        <tr>
+                            <td>${item.name}</td>
+                            <td class="text-center">${item.qty}</td>
+                            <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="removeTallyCartItem(${index})">X</button></td>
+                        </tr>
+                    `;
+                });
+            }
+            jsonInput.value = JSON.stringify(tallyCartMap);
+        }
+        
+        window.removeTallyCartItem = function (idx) {
+            tallyCartMap.splice(idx, 1);
+            renderTallyCart();
+        };
+
+        btnAddCart.addEventListener('click', function() {
+            const name = productSearch.value.trim();
+            const id = productIdInput.value;
+            const qty = parseInt(qtyInput.value) || 1;
+            
+            if (!name) { alert("Please enter/select a product"); return; }
+            if (qty < 1) { alert("Quantity must be at least 1"); return; }
+            
+            const existing = tallyCartMap.find(c => c.name === name);
+            if (existing) {
+                existing.qty += qty;
+            } else {
+                tallyCartMap.push({ id: id, name: name, qty: qty });
+            }
+            
+            renderTallyCart();
+            productSearch.value = '';
+            productIdInput.value = '';
+            qtyInput.value = 1;
+            document.getElementById('product_stock_info').style.display = 'none';
+        });
+
+        // Form submission check
+        document.getElementById('tallyForm').addEventListener('submit', function(e) {
+            if (tallyCartMap.length === 0) {
+                e.preventDefault();
+                alert('Please add at least one product to the bill!');
+            }
+        });
+        
+        productSearch.addEventListener('input', function() {
+            const query = this.value.toLowerCase();
+            searchResults.innerHTML = '';
+            
+            
+            // Re-hide initially
+            searchResults.style.display = 'none';
+            productIdInput.value = ''; 
+            document.getElementById('product_stock_info').style.display = 'none';
+            
+            if(query.length < 1) return;
+            
+            const matches = allProducts.filter(p => p.name.toLowerCase().includes(query));
+            
+            if(matches.length > 0) {
+                searchResults.style.display = 'block';
+                matches.forEach(p => {
+                    const div = document.createElement('div');
+                    div.style.padding = '8px 12px';
+                    div.style.cursor = 'pointer';
+                    div.style.borderBottom = '1px solid #eee';
+                    
+                    div.innerHTML = `<strong>${p.name}</strong> <small class="text-muted ms-2">(${p.category || 'Item'})</small>`;
+                    
+                    div.onclick = function() {
+                        productSearch.value = p.name;
+                        productIdInput.value = p.id;
+                        searchResults.style.display = 'none';
+                        
+                        const stockInfo = document.getElementById('product_stock_info');
+                        stockInfo.style.display = 'block';
+                        stockInfo.innerHTML = `<i class="bi bi-box-seam me-1"></i> In Stock: ${p.quantity} <span class="text-secondary">${p.unit}</span>`;
+                        if(p.quantity <= 0) {
+                            stockInfo.className = "text-danger mt-1 small fw-bold";
+                        } else {
+                            stockInfo.className = "text-primary mt-1 small fw-bold";
+                        }
+                    };
+                    
+                    div.onmouseover = function() { div.style.backgroundColor = '#f8f9fa'; };
+                    div.onmouseout = function() { div.style.backgroundColor = 'transparent'; };
+                    
+                    searchResults.appendChild(div);
+                });
+            }
+        });
+
+        // Close dropdown when clicked outside
+        document.addEventListener('click', function(e) {
+            if (e.target !== productSearch && e.target !== searchResults) {
+                searchResults.style.display = 'none';
+            }
+        });
+        
+        // Tab switching logic for status type in update modal
+        document.getElementById('order-tab').addEventListener('click', function() {
+            document.getElementById('status_type_input').value = 'order';
+        });
+        document.getElementById('payment-tab').addEventListener('click', function() {
+            document.getElementById('status_type_input').value = 'payment';
+        });
+
+        // Payment logic inside Update Modal
+        const pMode = document.getElementById('update_payment_mode');
+        const updateCDiv = document.getElementById('update_cash_div');
+        const updateODiv = document.getElementById('update_online_div');
+
+        pMode.addEventListener('change', function() {
+            updateCDiv.style.display = 'none';
+            updateODiv.style.display = 'none';
+            updateCDiv.classList.remove('col-12', 'col-6');
+            updateODiv.classList.remove('col-12', 'col-6');
+
+            if(this.value === 'Cash') {
+                updateCDiv.style.display = 'block';
+                updateCDiv.classList.add('col-12');
+            } else if(this.value === 'Online') {
+                updateODiv.style.display = 'block';
+                updateODiv.classList.add('col-12');
+            } else if(this.value === 'Both') {
+                updateCDiv.style.display = 'block';
+                updateODiv.style.display = 'block';
+                updateCDiv.classList.add('col-6');
+                updateODiv.classList.add('col-6');
+            }
+        });
+    });
+
+    function openUpdateStatusModal(id, orderStatus, grandTotal, paymentMode, cashAmount, onlineAmount) {
+        document.getElementById('update_tally_id').value = id;
+        document.getElementById('update_order_status').value = orderStatus || 'Order Pending';
+        document.getElementById('update_grand_total').value = grandTotal || 0;
+        
+        let mode = paymentMode;
+        if(paymentMode && paymentMode.includes('+')) mode = "Both";
+        document.getElementById('update_payment_mode').value = mode || '';
+        
+        document.getElementById('update_cash_amount').value = cashAmount || '';
+        document.getElementById('update_online_amount').value = onlineAmount || '';
+        
+        // Trigger changes to reset UI
+        document.getElementById('update_payment_mode').dispatchEvent(new Event('change'));
+        
+        // Reset Tabs to Order Status default
+        const orderTab = new bootstrap.Tab(document.getElementById('order-tab'));
+        orderTab.show();
+        document.getElementById('status_type_input').value = 'order';
+
+        var modal = new bootstrap.Modal(document.getElementById('updateStatusModal'));
+        modal.show();
+    }
+    
+    // --- SERVER-SIDE FILTER LOGIC ---
+    function applyFilters() {
+        const status = document.getElementById('filter-status').value;
+        const date = document.getElementById('filter-date').value;
+        const inv = document.getElementById('filter-inv').value.trim();
+
+        const params = new URLSearchParams();
+        if (status && status !== 'all') params.append('filter_status', status);
+        if (date) params.append('filter_date', date);
+        if (inv) params.append('filter_inv', inv);
+
+        window.location.href = `?${params.toString()}`;
+    }
+
+    function resetFilters() {
+        window.location.href = window.location.pathname;
+    }
+
+    function openDueBillsModal() {
+        var modal = new bootstrap.Modal(document.getElementById('dueBillsModal'));
+        modal.show();
+        
+        const contentDiv = document.getElementById('dueBillsContent');
+        contentDiv.innerHTML = `<div class="text-center text-muted col-12 py-5"><div class="spinner-border text-danger bg-opacity-25 mb-3" role="status"></div><p>Searching for outstanding debts...</p></div>`;
+        
+        fetch("{{ url_for('tally.get_due_bills') }}")
+            .then(res => res.json())
+            .then(data => {
+                if(data.length === 0) {
+                    contentDiv.innerHTML = `<div class="text-center text-success col-12 py-5"><i class="bi bi-check-circle fs-1 mb-3 d-block"></i><p class="fs-5 fw-bold">All clear!</p><p>There are no overdue bills as of today.</p></div>`;
+                    return;
+                }
+                
+                let html = '<div class="accordion" id="dueBillsAccordion">';
+                data.forEach((bill, idx) => {
+                    let itemsHtml = bill.items.map(i => `<tr><td>${i.product_name}</td><td class="text-center">${i.qty}</td></tr>`).join('');
+                    
+                    html += `
+                        <div class="accordion-item mb-3 border-danger shadow-sm border rounded">
+                            <h2 class="accordion-header" id="heading${bill.id}">
+                                <button class="accordion-button collapsed bg-white text-dark fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapse${bill.id}">
+                                    <div class="d-flex justify-content-between align-items-center w-100 pe-3">
+                                        <span class="text-primary" style="flex:1;">#${bill.invoice_number}</span>
+                                        <span class="badge bg-danger rounded-pill mx-2">Overdue: ${bill.days_overdue} Days</span>
+                                        <span class="text-dark">₹${bill.grand_total.toFixed(2)}</span>
+                                    </div>
+                                </button>
+                            </h2>
+                            <div id="collapse${bill.id}" class="accordion-collapse collapse" data-bs-parent="#dueBillsAccordion">
+                                <div class="accordion-body bg-light">
+                                    <div class="row mb-3">
+                                        <div class="col-md-6 mb-2">
+                                            <p class="mb-1 text-muted small text-uppercase fw-bold">Contact Person</p>
+                                            <div class="bg-white p-2 border rounded"><i class="bi bi-telephone-fill text-muted me-2"></i> ${bill.customer_phone}</div>
+                                        </div>
+                                        <div class="col-md-6 mb-2">
+                                            <p class="mb-1 text-muted small text-uppercase fw-bold">Email</p>
+                                            <div class="bg-white p-2 border rounded"><i class="bi bi-envelope-fill text-muted me-2"></i> ${bill.customer_email}</div>
+                                        </div>
+                                    </div>
+                                    <div class="row mb-3">
+                                        <div class="col-6">
+                                            <span class="text-muted small">Date Due:</span> <br> <strong>${bill.maturity_date_str}</strong>
+                                        </div>
+                                        <div class="col-6 text-end">
+                                            <span class="text-muted small">Paid so far:</span> <br> <strong class="text-success">₹${bill.paid_amount.toFixed(2)}</strong>
+                                        </div>
+                                    </div>
+                                    <table class="table table-sm table-bordered bg-white mb-0">
+                                        <thead class="table-light"><tr><th>Products in Bill</th><th class="text-center" style="width:70px;">Qty</th></tr></thead>
+                                        <tbody>${itemsHtml}</tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                contentDiv.innerHTML = html;
+            })
+            .catch(err => {
+                contentDiv.innerHTML = `<div class="alert alert-danger">Error loading due bills.</div>`;
+                console.error(err);
+            });
+    }
+</script>
+{% endblock %}

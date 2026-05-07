@@ -1,263 +1,440 @@
 {% extends "_layout.html" %}
-
 {% block content %}
-<h1>Purchase Log</h1>
 
-<!-- FILTER BAR -->
-<div class="card mb-3 p-2" style="background:var(--card-bg);">
-    <div class="d-flex align-items-center flex-wrap gap-10">
-        <!-- Date Range Buttons -->
-        <div class="d-flex gap-5 flex-wrap" style="gap:6px;">
-            <span class="text-muted font-bold" style="line-height:2;">Period:</span>
-            {% for label, val in [('7D','7'),('30D','30'),('3M','90'),('All','all')] %}
-            <a href="{{ url_for('purchase.purchase_log', date_range=val, supplier=active_supplier) }}"
-                class="btn btn-sm {{ 'btn-primary' if active_date_range == val else 'btn-secondary' }}">
-                {{ label }}
-            </a>
-            {% endfor %}
-        </div>
+<h1 class="mb-3">Purchase Log</h1>
 
-        <!-- Supplier Filter -->
-        <div class="d-flex align-items-center gap-5" style="gap:8px; flex:1; min-width:200px;">
-            <span class="text-muted font-bold" style="white-space:nowrap;">Supplier:</span>
-            <select onchange="window.location.href=this.value" class="form-control form-control-sm"
-                style="max-width:220px;">
-                <option value="{{ url_for('purchase.purchase_log', date_range=active_date_range) }}" {{ 'selected' if
-                    not active_supplier }}>All Suppliers</option>
-                {% for s in supplier_names %}
-                <option value="{{ url_for('purchase.purchase_log', date_range=active_date_range, supplier=s) }}"
-                    {{ 'selected' if active_supplier==s }}>{{ s }}</option>
-                {% endfor %}
-            </select>
-        </div>
+<!-- ── FILTERS ─────────────────────────────────────────── -->
+<div class="pl-filters mb-4">
+  <div class="row g-2 align-items-end">
 
-        <!-- Active filters badge -->
-        {% if active_supplier or active_date_range != '30' %}
-        <a href="{{ url_for('purchase.purchase_log') }}" class="btn btn-sm btn-danger" title="Clear filters">✕ Clear</a>
-        {% endif %}
+    <div class="col-12 col-sm-auto">
+      <label class="pl-filter-label">Period</label>
+      <div class="d-flex gap-1">
+        {% for label, val in [('7D','7'),('30D','30'),('3M','90'),('All','all')] %}
+        <a href="{{ url_for('purchase.purchase_log', date_range=val, supplier=active_supplier, status=active_status) }}"
+           class="btn btn-sm {{ 'btn-primary' if active_date_range == val else 'btn-secondary' }}">{{ label }}</a>
+        {% endfor %}
+      </div>
     </div>
+
+    <div class="col-12 col-sm">
+      <label class="pl-filter-label">Supplier</label>
+      <select onchange="window.location.href=this.value" class="form-control form-control-sm">
+        <option value="{{ url_for('purchase.purchase_log', date_range=active_date_range, status=active_status) }}" {{ 'selected' if not active_supplier }}>All Suppliers</option>
+        {% for s in supplier_names %}
+        <option value="{{ url_for('purchase.purchase_log', date_range=active_date_range, supplier=s, status=active_status) }}" {{ 'selected' if active_supplier==s }}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="col-12 col-sm">
+      <label class="pl-filter-label">Status</label>
+      <select onchange="window.location.href=this.value" class="form-control form-control-sm">
+        {% for lbl, val in [('All Statuses','all'),('Waiting','waiting'),('Approved','approved'),('Partial','partial'),('Received','received')] %}
+        <option value="{{ url_for('purchase.purchase_log', date_range=active_date_range, supplier=active_supplier, status=val) }}" {{ 'selected' if active_status==val }}>{{ lbl }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="col-12 col-sm">
+      <label class="pl-filter-label">Search</label>
+      <input id="po-search" class="pl-search-box" placeholder="PO# or Supplier…" oninput="filterTable(this.value)">
+    </div>
+
+    {% if active_supplier or active_date_range != '30' or active_status != 'all' %}
+    <div class="col-12 col-sm-auto">
+      <a href="{{ url_for('purchase.purchase_log') }}" class="btn btn-sm btn-danger">✕ Clear</a>
+    </div>
+    {% endif %}
+
+  </div>
 </div>
 
-{% macro render_purchase_item(p) %}
-<details class="bill-item">
-    <summary class="bill-summary">
-        <div class="flex-between gap-15 w-100">
-            <div>
-                <strong>ID #{{ p['id'] }}</strong>
-                <span class="text-muted" style="font-size: 0.85rem; margin-left: 5px;">
-                    (Ordered: {{ p['date'] }})
-                </span>
-                <br>
-                <small class="text-muted">{{ p['supplier'] }}</small>
-            </div>
+<!-- ── STATS ────────────────────────────────────────────── -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-2">
+    <div class="pl-stat-card total">
+      <div class="stat-val">{{ stats.total }}</div>
+      <div class="stat-lbl">Total Orders</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="pl-stat-card waiting">
+      <div class="stat-val">{{ stats.waiting }}</div>
+      <div class="stat-lbl">Waiting Approval</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="pl-stat-card approved">
+      <div class="stat-val">{{ stats.approved }}</div>
+      <div class="stat-lbl">Approved</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="pl-stat-card partial">
+      <div class="stat-val">{{ stats.partial }}</div>
+      <div class="stat-lbl">Partial</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="pl-stat-card received">
+      <div class="stat-val">{{ stats.received }}</div>
+      <div class="stat-lbl">Received</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="pl-stat-card damaged">
+      <div class="stat-val">{{ stats.total_damaged }}</div>
+      <div class="stat-lbl">Damaged Items</div>
+    </div>
+  </div>
+</div>
 
-            <div class="text-right">
-                <span class="status-badge {{ 'status-received' if p['status'] == 'Received' else 'status-pending' }}">
-                    {{ p['status'] }}
-                </span>
-
-                {% if p['received_date'] and p['status'] == 'Received' %}
-                <div class="text-success mt-1" style="font-size: 0.8rem; font-weight: bold;">
-                    ✅ Rcvd: {{ p['received_date'] }}
-                </div>
-                {% endif %}
-            </div>
-        </div>
-
-        <div class="bill-actions mt-1 w-100 flex-end gap-10">
-            <button class="btn btn-sm btn-primary"
-                onclick="sendEmail('{{ p['supplier'] }}', '{{ p['id'] }}', {{ p['items']|tojson }})">Email</button>
-            <button class="btn btn-sm btn-info" onclick="openDownloadPOModal('{{ p['id'] }}')">PO</button>
-        </div>
-    </summary>
-
-    <div class="bill-details">
-        <div class="table-responsive">
-            <table>
-                <thead>
-                    <tr>
-                        <th class="col-sno">#</th>
-                        <th>Product Details</th>
-                        <th class="text-center">Qty</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in p['items'] %}
-                    <tr>
-                        <td class="text-center">{{ loop.index }}</td>
-                        <td>
-                            <strong>{{ item['Product Name'] }}</strong>
-                            <br>
-                            <small class="text-muted">{{ item['Category'] }}</small>
-
-                            {% if p['received_date'] %}
-                            <br>
-                            <small class="text-success" style="font-size:0.75rem;">
-                                Received on: {{ p['received_date'] }}
-                            </small>
-                            {% endif %}
-                        </td>
-                        <td class="text-center font-bold" style="color:var(--success);">+{{ item['Qty'] }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <div class="status-manager mt-2">
-            {% if p['status'] == 'Received' %}
-            <form action="{{ url_for('purchase.update_purchase_status') }}" method="POST" class="flex-between gap-10"
-                onsubmit="return confirm('Revert to Pending? This will deduct the stock that was added.')">
-                <input type="hidden" name="purchase_id" value="{{ p['id'] }}">
-                <label>Status:</label>
-                <button type="submit" name="new_value" value="Pending" class="btn btn-sm btn-warning">Revert to
-                    Pending</button>
-            </form>
+<!-- ── PO TABLE ──────────────────────────────────────────── -->
+<div class="po-table-wrap">
+  <div class="table-header d-flex justify-content-between align-items-center px-3 py-2">
+    <span class="fw-bold">Purchase Orders</span>
+    <span class="text-muted" style="font-size:0.82rem;">{{ all_pos|length }} record(s)</span>
+  </div>
+  <div class="table-responsive">
+    <table class="po-table" id="po-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>PO ID</th>
+          <th>Order Date</th>
+          <th>Supplier</th>
+          <th class="text-center">Items</th>
+          <th>Status</th>
+          <th>Damaged</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for po in all_pos %}
+        <tr class="po-row"
+          data-id="{{ po.id }}"
+          data-date="{{ po.date }}"
+          data-supplier="{{ po.supplier | e }}"
+          data-status="{{ po.status }}"
+          data-received="{{ po.received_date or '' }}"
+          data-damaged="{{ po.total_damaged or 0 }}"
+          data-contact="{{ po.contact_info | e }}"
+          data-items='{{ po.line_items | tojson }}'
+          data-search="{{ po.supplier|lower }} {{ po.id }}"
+        >
+          <td class="text-muted" style="font-size:0.8rem;">{{ loop.index }}</td>
+          <td><span class="po-id">#{{ po.id }}</span></td>
+          <td><span class="po-date">{{ po.date }}</span></td>
+          <td><span class="supplier-name">{{ po.supplier }}</span></td>
+          <td class="text-center"><span class="status-pill sp-partial-pending">{{ po.item_count }}</span></td>
+          <td>
+            {% set sc = {'Waiting':'sp-waiting','Approved':'sp-approved','Pending':'sp-pending','Partial Pending':'sp-partial-pending','Partial Received':'sp-partial-received','Received':'sp-received'} %}
+            <span class="status-pill {{ sc.get(po.status, 'sp-pending') }}">{{ po.status }}</span>
+          </td>
+          <td>
+            {% if po.total_damaged and po.total_damaged > 0 %}
+              <span class="text-danger fw-bold" style="font-size:0.82rem;">⚠ {{ po.total_damaged }}</span>
             {% else %}
-            <div class="flex-between gap-10">
-                <label>Action:</label>
-                <button class="btn btn-sm btn-success" onclick="openReceiveModal('{{ p['id'] }}')">Mark
-                    Received</button>
+              <span class="text-muted" style="font-size:0.8rem;">—</span>
+            {% endif %}
+          </td>
+          <td onclick="event.stopPropagation()">
+            <div class="po-actions">
+              <button class="btn btn-sm btn-primary"   onclick="openDrawerFromRow(this.closest('tr'))">View</button>
+              <a href="/purchase?edit_po={{ po.id }}"  class="btn btn-sm btn-indigo" title="Edit PO">✏ Edit</a>
+              <a href="/download_po_checklist/{{ po.id }}" class="btn btn-sm btn-secondary" target="_blank" title="Inv Check PDF">📋</a>
+              <button class="btn btn-sm btn-info"      onclick="openDownloadPOModal('{{ po.id }}')">PO</button>
+              <button class="btn btn-sm btn-secondary" onclick="sendEmailFromRow(this.closest('tr'))">✉</button>
             </div>
-            {% endif %}
-        </div>
-    </div>
-</details>
-{% endmacro %}
-<div class="split-grid">
-    <div class="card col-pending">
-        <h2 style="color: var(--warning-text); border-bottom: none;">
-            ⏳ Pending Orders
-            {% if pending_purchases %}
-            <span class="status-badge status-pending" style="font-size:0.75rem; vertical-align:middle;">{{
-                pending_purchases.values()|sum(start=[]) |list|length }}</span>
-            {% endif %}
-        </h2>
-        <hr class="divider" style="margin: 5px 0 15px 0;">
-        {% if not pending_purchases %}
-        <p class="text-muted text-center p-3">No pending orders.</p>
+          </td>
+        </tr>
         {% else %}
-        {% for date, purchases_list in pending_purchases.items() %}
-        <div class="sticky-date-header">
-            <h3><span class="date-badge" style="background: #fff; color: #f57f17;">{{ date }}</span></h3>
-        </div>
-        <div class="log-tree">
-            {% for p in purchases_list %}
-            {{ render_purchase_item(p) }}
-            {% endfor %}
-        </div>
+        <tr class="po-empty"><td colspan="8">No purchase orders found for the selected filters.</td></tr>
         {% endfor %}
-        {% endif %}
-    </div>
-
-    <div class="card col-received">
-        <h2 style="color: var(--success-text); border-bottom: none;">
-            ✅ Received Orders
-            {% if received_purchases %}
-            <span class="status-badge status-received" style="font-size:0.75rem; vertical-align:middle;">{{
-                received_purchases.values()|sum(start=[]) |list|length }}</span>
-            {% endif %}
-        </h2>
-        <hr class="divider" style="margin: 5px 0 15px 0;">
-        {% if not received_purchases %}
-        <p class="text-muted text-center p-3">No received orders.</p>
-        {% else %}
-        {% for date, purchases_list in received_purchases.items() %}
-        <div class="sticky-date-header">
-            <h3><span class="date-badge" style="background: #fff; color: #2e7d32;">{{ date }}</span></h3>
-        </div>
-        <div class="log-tree">
-            {% for p in purchases_list %}
-            {{ render_purchase_item(p) }}
-            {% endfor %}
-        </div>
-        {% endfor %}
-        {% endif %}
-    </div>
+      </tbody>
+    </table>
+  </div>
 </div>
 
-<div id="downloadPOModal" class="custom-modal">
-    <div class="custom-modal-content">
-        <span class="close-modal" onclick="closeModal('downloadPOModal')">&times;</span>
-        <div class="text-center mb-2">
-            <h3>Download Purchase Order</h3>
-            <p>PO #<span id="modal-po-id"></span></p>
-        </div>
-        <div class="form-group">
-            <label>Deliver To (Address/Location):</label>
-            <textarea id="deliver-to-text" rows="4" class="w-100"
-                style="padding:10px; border-radius:5px; border:1px solid #ddd;">Safe Environment International
-Jaipur, Rajasthan</textarea>
-        </div>
-        <button class="btn btn-primary w-100 mt-2" onclick="downloadPO()">Download PDF</button>
+<!-- ── DRAWER OVERLAY ────────────────────────────────────── -->
+<div id="drawer-overlay" onclick="closeDrawer()"></div>
+
+<!-- ── DETAIL MODAL ──────────────────────────────────────── -->
+<div id="po-drawer">
+  <div class="drawer-box">
+    <div class="drawer-header d-flex justify-content-between align-items-start">
+      <div>
+        <div class="drawer-title" id="drawer-title">PO #—</div>
+        <div class="drawer-meta"  id="drawer-meta"></div>
+      </div>
+      <button onclick="closeDrawer()" class="btn btn-sm btn-secondary">✕ Close</button>
     </div>
+    <div class="drawer-body" id="drawer-body"></div>
+    <div class="drawer-footer d-flex flex-wrap gap-2" id="drawer-footer"></div>
+  </div>
 </div>
 
-<div id="receiveModal" class="custom-modal">
-    <div class="custom-modal-content" style="max-width: 400px;">
-        <span class="close-modal" onclick="closeModal('receiveModal')">&times;</span>
-        <div class="text-center mb-2">
-            <h3 class="text-success">Confirm Receipt</h3>
-            <p>Purchase #<span id="rcv-modal-id"></span></p>
-        </div>
+<!-- ── PO DOWNLOAD MODAL ──────────────────────────────────── -->
+<div id="po-download-modal" class="po-dl-modal-overlay">
+  <div class="card p-4" style="max-width:420px; width:90%;">
+    <h5 class="mb-3">Download PO PDF</h5>
+    <form id="po-download-form" method="GET" target="_blank">
+      <div class="form-group mb-3">
+        <label class="form-label">Deliver To (Warehouse)</label>
+        <select name="deliver_to" class="form-control">
+          {% for w in warehouses %}<option>{{ w.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary">Download PDF</button>
+        <button type="button" onclick="document.getElementById('po-download-modal').classList.remove('active')" class="btn btn-secondary">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
 
-        <form action="{{ url_for('purchase.update_purchase_status') }}" method="POST">
-            <input type="hidden" name="purchase_id" id="form-rcv-id">
-            <input type="hidden" name="new_value" value="Received">
+<!-- ── MARK RECEIVED MODAL ────────────────────────────────── -->
+<div id="rcv-modal" class="rcv-modal-overlay">
+  <div class="rcv-modal-card">
 
-            <div class="form-group">
-                <label>Received Date & Time</label>
-                <input type="datetime-local" name="received_time" id="rcv-time-input" required>
-            </div>
-
-            <button type="submit" class="btn btn-success w-100 mt-2">Confirm & Add Stock</button>
-        </form>
+    <div class="rcv-modal-header">
+      <h5 class="mb-0">Mark Received — PO #<span id="rcv-modal-id"></span></h5>
     </div>
+
+    <form action="{{ url_for('purchase.update_purchase_status') }}" method="POST" class="d-flex flex-column flex-grow-1 overflow-hidden">
+      <input type="hidden" name="purchase_id" id="form-rcv-id">
+      <input type="hidden" name="new_value"   value="Received">
+      <input type="hidden" name="item_count"  id="item_count_input" value="0">
+
+      <div class="rcv-modal-body">
+        <div class="table-responsive">
+          <table class="table table-bordered table-hover mb-0">
+            <thead class="rcv-thead-sticky">
+              <tr>
+                <th>Product</th>
+                <th class="text-center">Price</th>
+                <th class="text-center">Ordered</th>
+                <th class="text-center text-success">Received Qty</th>
+                <th class="text-center text-danger">Damaged</th>
+              </tr>
+            </thead>
+            <tbody id="rcv-items-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="rcv-modal-footer">
+        <div class="row g-3 mb-3">
+          <div class="col-12 col-sm-6">
+            <label class="form-label fw-semibold">Received Date &amp; Time</label>
+            <input type="datetime-local" name="received_time" id="rcv-time-input" class="form-control" required>
+          </div>
+          <div class="col-12 col-sm-6">
+            <label class="form-label fw-semibold">Destination Warehouse</label>
+            <select name="warehouse_id" class="form-control" required>
+              {% for w in warehouses %}<option value="{{ w.id }}">{{ w.name }}</option>{% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-success fw-semibold px-4">Confirm &amp; Add Stock</button>
+          <button type="button" onclick="closeRcvModal()" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+
+    </form>
+  </div>
 </div>
 
 <script>
-    let currentPOId = null;
+const CURRENT_ROLE = "{{ current_role }}";
+// ── Table search ───────────────────────────────────────────
+function filterTable(q) {
+  q = q.toLowerCase();
+  document.querySelectorAll('#po-table tbody tr[data-search]').forEach(row => {
+    row.style.display = row.dataset.search.includes(q) ? '' : 'none';
+  });
+}
 
-    // --- RECEIVE MODAL FUNCTIONS ---
-    function openReceiveModal(id) {
-        document.getElementById('rcv-modal-id').textContent = id;
-        document.getElementById('form-rcv-id').value = id;
+// ── Row click ──────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.po-row').forEach(row => {
+    row.addEventListener('click', () => openDrawerFromRow(row));
+  });
+});
 
-        // Set default time to NOW
-        const now = new Date();
-        // Format for datetime-local: YYYY-MM-DDTHH:MM
-        now.setMinutes(now.getMinutes() - now.getTimezoneOffset()); // Adjust to local
-        document.getElementById('rcv-time-input').value = now.toISOString().slice(0, 16);
+function openDrawerFromRow(row) {
+  openDrawer({
+    id:           row.dataset.id,
+    date:         row.dataset.date,
+    supplier:     row.dataset.supplier,
+    status:       row.dataset.status,
+    received_date:row.dataset.received || null,
+    total_damaged:parseInt(row.dataset.damaged) || 0,
+    contact_info: row.dataset.contact || '',
+    items:        JSON.parse(row.dataset.items || '[]')
+  });
+}
 
-        document.getElementById('receiveModal').classList.add('active');
-    }
+function sendEmailFromRow(row) {
+  sendEmail(row.dataset.supplier, row.dataset.id,
+            row.dataset.contact || '',
+            JSON.parse(row.dataset.items || '[]'));
+}
 
-    // --- PO DOWNLOAD FUNCTIONS ---
-    function openDownloadPOModal(id) {
-        currentPOId = id;
-        document.getElementById('modal-po-id').textContent = id;
-        document.getElementById('downloadPOModal').classList.add('active');
-    }
+// ── Drawer ─────────────────────────────────────────────────
+let currentPO = null;
+function openDrawer(po) {
+  currentPO = po;
+  document.getElementById('drawer-title').textContent = 'PO #' + po.id;
+  const icons = {'Pending':'🟡','Partial Pending':'🟠','Partial Received':'🔵','Received':'🟢'};
+  document.getElementById('drawer-meta').innerHTML =
+    `${icons[po.status]||''} ${po.status} &nbsp;|&nbsp; 📅 ${po.date} &nbsp;|&nbsp; 🏢 ${po.supplier}`;
 
-    function downloadPO() {
-        if (!currentPOId) return;
-        const deliverTo = document.getElementById('deliver-to-text').value;
-        const url = `/download_purchase_order/${currentPOId}?deliver_to=${encodeURIComponent(deliverTo)}`;
-        window.location.href = url;
-        closeModal('downloadPOModal');
-    }
+  let body = '';
+  if (po.total_damaged > 0)
+    body += `<div class="dmg-alert">⚠️ <strong>Notice:</strong> ${po.total_damaged} item(s) reported as damaged/missing.</div>`;
+  if (po.received_date)
+    body += `<div class="drawer-rcv-date">✅ Received: ${po.received_date}</div>`;
 
-    function sendEmail(supplier, pid, items) {
-        const subject = encodeURIComponent(`Purchase Order #${pid} - ${supplier}`);
-        let bodyText = `Dear ${supplier},\n\nPlease find below the purchase order details (PO #${pid}):\n\n`;
-        items.forEach((item, index) => {
-            bodyText += `${index + 1}. ${item['Product Name']} (${item['Category']}): ${item['Qty']} units\n`;
-        });
-        bodyText += `\nTotal Items: ${items.length}\n\nPlease confirm receipt.\n\nRegards,\nAdmin Portal`;
-        window.location.href = `mailto:?subject=${subject}&body=${encodeURIComponent(bodyText)}`;
-    }
+  body += `<table class="drawer-item-table">
+    <thead><tr>
+      <th>#</th><th>Product</th><th>Category</th>
+      <th class="text-center">Price</th>
+      <th class="text-center">Qty</th>
+      <th class="text-center">Unit</th>
+    </tr></thead><tbody>`;
+  (po.items || []).forEach((item, i) => {
+    body += `<tr>
+      <td class="drawer-item-num">${i+1}</td>
+      <td class="drawer-item-name">${item['Product Name']}</td>
+      <td class="drawer-item-cat">${item['Category']}</td>
+      <td class="drawer-item-price">₹${parseFloat(item['Price']||0).toLocaleString('en-IN')}</td>
+      <td class="drawer-item-qty">+${item['Qty']}</td>
+      <td class="drawer-item-unit">${item['Unit']||'-'}</td>
+    </tr>`;
+  });
+  body += '</tbody></table>';
+  document.getElementById('drawer-body').innerHTML = body;
 
-    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
-    window.onclick = function (e) { if (e.target.classList.contains('custom-modal')) e.target.classList.remove('active'); }
+  let footer = '';
+
+  // Approve button — admins only, Waiting POs
+  if (po.status === 'Waiting' && CURRENT_ROLE === 'admin') {
+    footer += `<form action="/approve_purchase" method="POST" style="display:inline;">
+      <input type="hidden" name="purchase_id" value="${po.id}">
+      <button type="submit" class="btn btn-sm btn-success fw-bold">✅ Approve PO</button>
+    </form>`;
+  }
+
+  // Revert to Waiting — admins only, Approved POs
+  if (po.status === 'Approved' && CURRENT_ROLE === 'admin') {
+    footer += `<form action="/update_purchase_status" method="POST" onsubmit="return confirm('Revert this PO back to Waiting?')" style="display:inline;">
+      <input type="hidden" name="purchase_id" value="${po.id}">
+      <button type="submit" name="new_value" value="Waiting" class="btn btn-sm btn-warning">↩ Revert to Waiting</button>
+    </form>`;
+  }
+
+  // Revert received to Pending
+  if (['Received','Partial Received'].includes(po.status)) {
+    footer += `<form action="/update_purchase_status" method="POST" onsubmit="return confirm('Revert to Pending? This will deduct added stock.')" style="display:inline;">
+      <input type="hidden" name="purchase_id" value="${po.id}">
+      <button type="submit" name="new_value" value="Pending" class="btn btn-sm btn-warning">↩ Revert to Pending</button>
+    </form>`;
+  }
+
+  // Mark Received — only for Approved POs
+  if (po.status === 'Approved') {
+    footer += `<button class="btn btn-sm btn-primary" onclick="openReceiveModal(currentPO.id, currentPO.items)">✔ Mark Received</button>`;
+  }
+
+  footer += `<a href="/purchase?edit_po=${po.id}" class="btn btn-sm btn-indigo">✏ Edit PO</a>`;
+  footer += `<a href="/download_po_checklist/${po.id}" class="btn btn-sm btn-secondary" target="_blank">📋 Inv Check</a>`;
+  footer += `<button class="btn btn-sm btn-info" onclick="openDownloadPOModal('${po.id}')">📄 PO PDF</button>`;
+  footer += `<button class="btn btn-sm btn-secondary" onclick="sendEmail(currentPO.supplier,currentPO.id,currentPO.contact_info,currentPO.items)">✉ Email</button>`;
+  document.getElementById('drawer-footer').innerHTML = footer;
+
+  document.getElementById('drawer-overlay').classList.add('show');
+  document.getElementById('po-drawer').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeDrawer() {
+  document.getElementById('po-drawer').classList.remove('open');
+  document.getElementById('drawer-overlay').classList.remove('show');
+  document.body.style.overflow = '';
+}
+
+// ── Mark Received Modal ────────────────────────────────────
+function openReceiveModal(id, items) {
+  document.getElementById('rcv-modal-id').textContent = id;
+  document.getElementById('form-rcv-id').value = id;
+  const tbody = document.getElementById('rcv-items-body');
+  tbody.innerHTML = '';
+
+  if (items && items.length > 0) {
+    let count = 0;
+    items.forEach(item => {
+      if (isNaN(item['Qty'])) return;
+      const qty = parseInt(item['Qty']);
+      if (isNaN(qty) || qty <= 0) return;
+      const idx = count;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>
+          <strong>${item['Product Name']}</strong>
+          <br><small class="text-muted">${item['Category']}</small>
+          <input type="hidden" name="item_name_${idx}" value="${item['Product Name']}">
+          <input type="hidden" name="item_cat_${idx}"  value="${item['Category']}">
+        </td>
+        <td class="text-center fw-semibold align-middle">
+          ₹${parseFloat(item['Price']||0).toLocaleString('en-IN')}
+        </td>
+        <td class="text-center fw-bold align-middle">
+          ${qty}
+          <input type="hidden" name="ordered_qty_${idx}" value="${qty}">
+        </td>
+        <td class="text-center align-middle">
+          <input type="number" name="received_qty_${idx}"
+                 class="form-control form-control-sm text-center rcv-input-qty rcv-input-good"
+                 value="${qty}" min="0" max="${qty}" required>
+        </td>
+        <td class="text-center align-middle">
+          <input type="number" name="damaged_qty_${idx}"
+                 class="form-control form-control-sm text-center rcv-input-qty rcv-input-dmg"
+                 value="0" min="0" max="${qty}" required>
+        </td>`;
+      tbody.appendChild(tr);
+      count++;
+    });
+    if (count === 0)
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">No pending items to receive.</td></tr>';
+    document.getElementById('item_count_input').value = count;
+  } else {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">No item details. Status will update normally.</td></tr>';
+    document.getElementById('item_count_input').value = 0;
+  }
+
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  document.getElementById('rcv-time-input').value = now.toISOString().slice(0,16);
+  document.getElementById('rcv-modal').classList.add('active');
+}
+function closeRcvModal() { document.getElementById('rcv-modal').classList.remove('active'); }
+
+// ── PO Download Modal ──────────────────────────────────────
+function openDownloadPOModal(id) {
+  document.getElementById('po-download-form').action = '/download_purchase_order/' + id;
+  document.getElementById('po-download-modal').classList.add('active');
+}
+
+// ── Email ──────────────────────────────────────────────────
+function sendEmail(supplier, poId, contactInfo, items) {
+  const lines = (items||[]).map(i=>`  • ${i['Product Name']} — Qty: ${i['Qty']} ${i['Unit']||''}`).join('\n');
+  const subject = encodeURIComponent(`Purchase Order #${poId} — Safe Environment International`);
+  const body    = encodeURIComponent(`Dear ${supplier},\n\nPlease find below our Purchase Order #${poId}:\n\n${lines}\n\nKindly confirm receipt.\n\nRegards,\nSafe Environment International`);
+  window.open(`mailto:${contactInfo||''}?subject=${subject}&body=${body}`, '_blank');
+}
 </script>
 {% endblock %}

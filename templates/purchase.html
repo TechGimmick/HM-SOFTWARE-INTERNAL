@@ -2,7 +2,7 @@
 
 {% block content %}
 <h1>Record New Purchase</h1>
-
+<div id="edit-po-banner" style="display:none; background:#6366f1; color:#fff; padding:10px 18px; border-radius:8px; margin-bottom:14px; font-weight:600; font-size:0.92rem;"></div>
 <div class="card">
     <div class="flex-between mb-2">
         <h2>Purchase & Stock</h2>
@@ -60,10 +60,11 @@
                 <table id="bulk-order-table" style="min-width: 800px;">
                     <thead>
                         <tr>
-                            <th style="width: 20%;">Product</th>
+                            <th style="width: 18%;">Product</th>
                             <th style="width: 10%;">HSN / GST</th>
-                            <th style="width: 15%;">Stock (Qty)</th>
-                            <th style="width: 20%;">Min / Max</th>
+                            <th style="width: 12%;">Stock (Qty)</th>
+                            <th style="width: 15%;">Min / Max</th>
+                            <th style="width: 10%;">Pack Size</th>
                             <th style="width: 10%;">Cost</th>
                             <th style="width: 10%;">Sales</th>
                             <th style="width: 15%; background-color: var(--light);">Order Qty</th>
@@ -84,8 +85,12 @@
                             style="color:#2e7d32;">₹0</span></span>
                 </div>
                 <div>
+                    <button type="button" class="btn btn-secondary" onclick="autoFillOrder()">Auto-Fill Order</button>
                     <input type="hidden" name="purchase_cart" id="purchase_cart_input">
-                    <button type="button" class="btn btn-primary" style="margin-left: 15px;"
+                    {% if edit_po_id %}
+                    <input type="hidden" name="edit_po_id" value="{{ edit_po_id }}">
+                    {% endif %}
+                    <button type="button" class="btn btn-primary" id="btn-submit-order" style="margin-left: 15px;"
                         onclick="submitBulkOrder()">Place Order</button>
                 </div>
             </div>
@@ -189,6 +194,10 @@
                 <div class="col-6 form-group"><label>Max Stock</label><input type="number" name="max_stock" value="100"
                         class="form-control"></div>
             </div>
+            <div class="form-group">
+                <label>Pack Size (Qty per unit)</label>
+                <input type="number" name="pack_size" value="1" min="1" class="form-control" required>
+            </div>
             <button type="submit" class="btn btn-success w-100">Save Product</button>
         </form>
     </div>
@@ -198,6 +207,9 @@
     let currentMode = 'supplier';
     let categoriesLoaded = false;
     const autoSupplier = "{{ auto_supplier or '' }}";
+    const editCartJson = {{ edit_cart_json | tojson if edit_cart_json else 'null' }};
+    const editPoId = {{ edit_po_id | tojson if edit_po_id else 'null' }};
+    const editSupplierId = {{ edit_supplier_id | tojson if edit_supplier_id else 'null' }};
 
     // ── Page Load: fetch suppliers via JS (zero server DB queries) ──
     window.addEventListener('DOMContentLoaded', function () {
@@ -212,8 +224,11 @@
                     opt.textContent = s.name;
                     sel.appendChild(opt);
                 });
-                // Auto-select supplier if redirected back (e.g. after adding product)
-                if (autoSupplier) {
+                // If editing a PO: select by ID and load products (which will then pre-fill qty)
+                if (editSupplierId) {
+                    sel.value = editSupplierId;
+                    loadProducts(editSupplierId, 'supplier');
+                } else if (autoSupplier) {
                     sel.value = autoSupplier;
                     loadProducts(autoSupplier, 'supplier');
                 }
@@ -340,12 +355,38 @@
                                style="flex: 1; min-width: 50px; border-color:#ccc; text-align:center;" title="Max">
                     </div>
                 </td>
+                <td>
+                    <input type="number" class="input-sm packsize-input w-100" value="${p.pack_size || 1}" min="1"
+                           onblur="updateProductStock(${p.id}, 'pack_size', this)"
+                           style="min-width: 50px; border-color:#ccc; text-align:center;" title="Pack Size">
+                </td>
                 <td><input type="number" step="0.01" class="input-sm table-input cost-input w-100" value="${p.purchase_price}" data-id="${p.id}" style="min-width: 60px;"></td>
                 <td><input type="number" step="0.01" class="input-sm table-input sales-input w-100" value="${p.sales_price}" data-id="${p.id}" style="min-width: 60px;"></td>
-                <td><input type="number" min="0" class="input-sm qty-input" placeholder="0" data-id="${p.id}" data-name="${p.name}" data-cat="${p.category}" oninput="updateTotalCount()" style="width: 100%; min-width: 60px;"></td>
+                <td>
+                    <input type="number" min="0" class="input-sm qty-input" placeholder="0" data-id="${p.id}" data-name="${p.name}" data-cat="${p.category}" data-packsize="${p.pack_size || 1}" oninput="updateTotalCount()" style="width: 100%; min-width: 60px;">
+                </td>
             `;
             tbody.appendChild(row);
         });
+
+        // If editing a PO, pre-fill quantities from editCartJson
+        if (editCartJson && Array.isArray(editCartJson)) {
+            editCartJson.forEach(editItem => {
+                // data-id is always a string in the DOM, cast to match
+                const qtyInput = tbody.querySelector(`.qty-input[data-id="${String(editItem.id)}"]`);
+                if (qtyInput && editItem.qty > 0) {
+                    qtyInput.value = editItem.qty;
+                    // Highlight so user can see pre-filled rows
+                    qtyInput.style.borderColor = '#6366f1';
+                    qtyInput.style.background = 'rgba(99,102,241,0.08)';
+                }
+            });
+            updateTotalCount();
+            if (editPoId) {
+                const banner = document.getElementById('edit-po-banner');
+                if (banner) { banner.style.display = 'block'; banner.textContent = `✏️ Editing PO #${editPoId} — Quantities pre-filled. Adjust and submit to create a new PO.`; }
+            }
+        }
     }
 
     async function updateProductStock(id, field, inputElement) {
@@ -394,6 +435,38 @@
         document.getElementById('total-items-count').textContent = count;
         document.getElementById('est-total-cost').textContent = fmt(baseCost);
         document.getElementById('est-total-gst').textContent = fmt(gstTotal);
+    }
+
+    function autoFillOrder() {
+        document.querySelectorAll('#bulk-order-body tr').forEach(row => {
+            // Get stock input from 3rd cell (index 2)
+            const stockInput = row.cells[2]?.querySelector('input[type="number"]');
+            // Get min/max inputs from 4th cell (index 3)
+            const minMaxInputs = row.cells[3]?.querySelectorAll('input[type="number"]');
+            // Get pack size input from 5th cell (index 4)
+            const packSizeInput = row.cells[4]?.querySelector('.packsize-input');
+            // Get qty input
+            const qtyInput = row.querySelector('.qty-input');
+            
+            if (stockInput && minMaxInputs && minMaxInputs.length >= 2 && qtyInput) {
+                const currentStock = parseFloat(stockInput.value) || 0;
+                const maxStock = parseFloat(minMaxInputs[1].value) || 0;
+                const packSize = parseInt(packSizeInput ? packSizeInput.value : 1) || 1;
+                
+                if (maxStock > currentStock) {
+                    const diff = maxStock - currentStock;
+                    const orderQty = Math.floor(diff / packSize) * packSize;
+                    if (orderQty > 0) {
+                        qtyInput.value = orderQty;
+                    } else {
+                        qtyInput.value = '';
+                    }
+                } else {
+                    qtyInput.value = '';
+                }
+            }
+        });
+        updateTotalCount();
     }
 
     function submitBulkOrder() {

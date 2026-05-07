@@ -272,3 +272,85 @@ def download_bill(sales_id):
     resp.headers['Content-Type'] = 'application/pdf'
     resp.headers['Content-Disposition'] = f'attachment; filename=Bill_{sales_id}_{bill_format}.pdf'
     return resp
+
+@pdf_bp.route("/download_po_checklist/<int:purchase_id>")
+@login_required
+def download_po_checklist(purchase_id):
+    purchase = db.session.get(Purchase, purchase_id)
+    if not purchase:
+        return redirect(url_for('purchase.purchase_log'))
+        
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", 'B', 16)
+    pdf.cell(0, 10, "Inventory Check & Receiving Form", align='C', ln=1)
+    pdf.ln(2)
+    
+    pdf.set_font("Helvetica", size=10)
+    pdf.cell(0, 8, f"PO ID: {purchase.id}", ln=1)
+    pdf.cell(0, 8, f"Supplier: {purchase.supplier_name}", ln=1)
+    date_str = purchase.date.strftime('%Y-%m-%d') if purchase.date else "N/A"
+    pdf.cell(0, 8, f"PO Date: {date_str}", ln=1)
+    pdf.ln(5)
+    
+    # Header
+    pdf.set_font("Helvetica", 'B', 9)
+    # Total width: 190. SNo: 10, Name: 65, Ordered: 25, Unit: 20, Rcvd: 35, Dmg: 35
+    pdf.cell(10, 10, "S.No", 1, 0, 'C')
+    pdf.cell(65, 10, "Product Name", 1, 0, 'L')
+    pdf.cell(25, 10, "Qty Ordered", 1, 0, 'C')
+    pdf.cell(20, 10, "Unit", 1, 0, 'C')
+    pdf.cell(35, 10, "Qty Received", 1, 0, 'C')
+    pdf.cell(35, 10, "Damaged", 1, 1, 'C')
+    
+    # Items
+    pdf.set_font("Helvetica", size=9)
+    items = []
+    if purchase.received_details:
+        import json
+        details = json.loads(purchase.received_details)
+        for item in details:
+            ord_qty = item.get('ordered_qty', 0)
+            good = item.get('good_qty', 0)
+            dmg = item.get('damaged_qty', 0)
+            pending = ord_qty - (good + dmg)
+            if pending > 0:
+                name = item.get('name')
+                prod = Product.query.filter((Product.name == name) | (Product.purchase_name == name)).first()
+                unit = prod.unit if prod else "-"
+                items.append({'name': name, 'qty': str(pending), 'unit': unit})
+    elif purchase.product_name:
+        raw_items = purchase.product_name.split(' || ') if ' || ' in purchase.product_name else purchase.product_name.split(', ')
+        for r in raw_items:
+            if ' (x' in r:
+                name_part, qty_part = r.rsplit(' (x', 1)
+                qty = qty_part.rstrip(')')
+                prod = Product.query.filter((Product.name == name_part) | (Product.purchase_name == name_part)).first()
+                unit = prod.unit if prod else "-"
+                items.append({'name': name_part, 'qty': qty, 'unit': unit})
+                
+    for i, item in enumerate(items, 1):
+        # Prevent page break in the middle of a row
+        if pdf.get_y() > 270:
+            pdf.add_page()
+            
+        name_str = str(item['name'])
+        # Truncate if too long (approx 35 chars for 65 width in size 9)
+        if len(name_str) > 34:
+            name_str = name_str[:31] + "..."
+            
+        pdf.cell(10, 10, str(i), 1, 0, 'C')
+        pdf.cell(65, 10, name_str, 1, 0, 'L')
+        pdf.cell(25, 10, str(item['qty']), 1, 0, 'C')
+        pdf.cell(20, 10, str(item.get('unit', '-')), 1, 0, 'C')
+        
+        # Blank cells for manual filling
+        pdf.cell(35, 10, "", 1, 0, 'C')
+        pdf.cell(35, 10, "", 1, 1, 'C')
+        
+    pdf_content = pdf.output(dest='S')
+    response_data = bytes(pdf_content) if isinstance(pdf_content, (bytes, bytearray)) else pdf_content.encode('latin-1')
+    resp = make_response(response_data)
+    resp.headers['Content-Type'] = 'application/pdf'
+    resp.headers['Content-Disposition'] = f'attachment; filename=Inventory_Checklist_PO_{purchase_id}.pdf'
+    return resp

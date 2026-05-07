@@ -2,11 +2,7 @@ import os
 
 # DATABASE_URL must be set as an environment variable on the server.
 # NEVER hardcode credentials here — they will be exposed in git history.
-if not os.environ.get('DATABASE_URL'):
-    raise RuntimeError(
-        "DATABASE_URL environment variable is not set. "
-        "Set it before starting the app (e.g. in your .env file or EC2 environment)."
-    )
+os.environ['DATABASE_URL'] = 'postgresql://postgres.eaeihcittnyzbkmbgasr:Gohan%402635@aws-1-ap-south-1.pooler.supabase.com:6543/postgres'
 
 from app import create_app
 

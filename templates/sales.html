@@ -98,12 +98,21 @@
                     <label>Qty</label>
                     <input type="number" id="qty_input" min="1" value="1">
                 </div>
+                <div class="form-group">
+                    <label>&nbsp;</label>
+                    <button type="button" class="btn btn-outline-success"
+                            id="open-quick-product-btn"
+                            onclick="openModal('quickProductModal')"
+                            title="Add a brand new product to the catalog">
+                        + New Product
+                    </button>
+                </div>
             </div>
 
             <!-- Preview Box -->
             <div id="selected_item_info" class="selection-preview">
                 <strong>Selected:</strong> <span id="sel_name" class="text-primary"></span><br>
-                <small>Price: ₹<span id="sel_price"></span> | Unit: <span id="sel_unit"></span> | Stock: <span
+                <small>Price: ₹<span id="sel_price"></span> | Unit: <span id="sel_unit"></span> | Pack Size: <span id="sel_pack_size"></span> | Stock: <span
                         id="sel_stock"></span></small>
 
                 <div id="variation-selector" class="variation-box">
@@ -195,12 +204,155 @@
             <h3>Total: <span id="grand-total-display" class="text-primary">₹0.00</span></h3>
         </div>
 
+        <div class="form-group mb-2">
+            <label>Dispatch From Warehouse</label>
+            <select name="warehouse_id" required>
+                {% for w in warehouses %}
+                <option value="{{ w.id }}">{{ w.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
         <input type="hidden" name="sales_cart" id="sales_cart_input">
         <button type="submit" id="record-sale-btn" class="btn btn-success w-100" disabled
             title="Add at least one item to the cart">Record Sale</button>
     </form>
 </div>
 {% endif %}
+
+<!-- ══ QUICK ADD PRODUCT MODAL — full form, identical to Purchase page ══ -->
+<div id="quickProductModal" class="custom-modal qp-modal">
+    <div class="custom-modal-content qp-modal-content">
+        <span class="close-modal" onclick="closeModal('quickProductModal')">&times;</span>
+        <h3>Add Product</h3>
+        <p class="text-muted qp-subtitle">
+            Saved permanently to the catalog &amp; added to your cart instantly.
+        </p>
+
+        <div id="qp-error" class="alert alert-danger d-none"></div>
+
+        <!-- Supplier -->
+        <div class="form-group">
+            <label>Supplier <span class="text-danger">*</span></label>
+            <select id="qp-supplier" class="form-control" required>
+                <option value="" disabled selected>Loading suppliers...</option>
+            </select>
+        </div>
+
+        <!-- Barcode -->
+        <div class="form-group">
+            <label>Barcode</label>
+            <input type="text" id="qp-barcode" class="form-control qp-barcode-input"
+                   placeholder="Scan Barcode...">
+        </div>
+
+        <!-- Category -->
+        <div class="form-group">
+            <label>Category <span class="text-danger">*</span></label>
+            <input type="text" id="qp-category" class="form-control" required>
+        </div>
+
+        <!-- HSN / GST -->
+        <div class="row g-2">
+            <div class="col-12 col-sm-6 form-group">
+                <label>HSN</label>
+                <input type="text" id="qp-hsn" class="form-control">
+            </div>
+            <div class="col-12 col-sm-6 form-group">
+                <label>GST %</label>
+                <input type="number" id="qp-gst" class="form-control" value="0">
+            </div>
+        </div>
+
+        <!-- Product Name (sales) -->
+        <div class="form-group">
+            <label>Product Name (Sales &amp; Inventory) <span class="text-danger">*</span></label>
+            <input type="text" id="qp-name" class="form-control" required
+                   placeholder="e.g. Glass Cleaner 5L">
+        </div>
+
+        <!-- Purchase Name -->
+        <div class="form-group">
+            <label>Purchase Name (For PO only)</label>
+            <input type="text" id="qp-purchase-name" class="form-control"
+                   placeholder="e.g. GC-500 Industrial Pack">
+            <small class="text-muted">Leave empty to use Sales Name</small>
+        </div>
+
+        <!-- Unit -->
+        <div class="form-group">
+            <label>Unit</label>
+            <select id="qp-unit" class="form-control">
+                <option>Pkt</option>
+                <option>Ltr</option>
+                <option>Kg</option>
+                <option>Box</option>
+                <option>Nos.</option>
+                <option>Can</option>
+                <option>Roll</option>
+                <option>Pcs</option>
+                <option>Pair</option>
+                <option>sq.ft</option>
+            </select>
+        </div>
+
+        <!-- Has Variations -->
+        <div class="mb-2 p-2 qp-variation-box">
+            <label class="qp-variation-label">
+                <input type="checkbox" id="qp-has-sub" onchange="qpToggleSub(this)">
+                Has Variations? (Color, Size etc.)
+            </label>
+            <div id="qp-sub-fields" class="d-none mt-2">
+                <div class="form-group">
+                    <label>Type</label>
+                    <input type="text" id="qp-sub-type" class="form-control"
+                           placeholder="e.g. Color">
+                </div>
+                <div class="form-group">
+                    <label>Options (comma separated)</label>
+                    <input type="text" id="qp-sub-opts" class="form-control"
+                           placeholder="Red, Blue">
+                </div>
+            </div>
+        </div>
+
+        <!-- Cost / Sales Price -->
+        <div class="row g-2">
+            <div class="col-6 form-group">
+                <label>Cost Price</label>
+                <input type="number" id="qp-purchase-price" class="form-control" step="0.01">
+            </div>
+            <div class="col-6 form-group">
+                <label>Sales Price</label>
+                <input type="number" id="qp-mrp" class="form-control" step="0.01">
+            </div>
+        </div>
+
+        <!-- Min / Max Stock -->
+        <div class="row g-2">
+            <div class="col-6 form-group">
+                <label>Min Stock</label>
+                <input type="number" id="qp-min-stock" class="form-control" value="10">
+            </div>
+            <div class="col-6 form-group">
+                <label>Max Stock</label>
+                <input type="number" id="qp-max-stock" class="form-control" value="100">
+            </div>
+        </div>
+
+        <!-- Pack Size -->
+        <div class="form-group">
+            <label>Pack Size (Qty per unit)</label>
+            <input type="number" id="qp-pack-size" class="form-control" value="1" min="1">
+        </div>
+
+        <button type="button" class="btn btn-success w-100 mt-2" id="qp-save-btn"
+                onclick="quickSaveProduct()">
+            Save Product
+        </button>
+    </div>
+</div>
+
 
 <!-- PRICE CHOICE MODAL -->
 <div id="priceChoiceModal" class="custom-modal" style="z-index: 3000;">
@@ -241,8 +393,28 @@
     function openModal(id) { document.getElementById(id).classList.add('active'); }
     function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
-    // --- MAIN INITIALIZATION ---
-    document.addEventListener("DOMContentLoaded", function () {
+    // ── PAGE LOAD & INITIALIZATION ─────────────────────────────────────────
+    window.addEventListener('DOMContentLoaded', function () {
+
+        // Fetch Suppliers for Quick Add Product Modal
+        fetch('/get_suppliers')
+            .then(r => r.json())
+            .then(suppliers => {
+                const sel = document.getElementById('qp-supplier');
+                if (sel) {
+                    sel.innerHTML = '<option value="" disabled selected>-- Select Supplier --</option>';
+                    suppliers.forEach(s => {
+                        const opt = document.createElement('option');
+                        opt.value = s.id;
+                        opt.textContent = s.name;
+                        sel.appendChild(opt);
+                    });
+                }
+            })
+            .catch(() => {
+                const sel = document.getElementById('qp-supplier');
+                if (sel) sel.innerHTML = '<option value="" disabled selected>-- Could not load --</option>';
+            });
 
         // 1. Load Product Data from Python
         if (window.SALES_PRODUCT_DATA) {
@@ -394,6 +566,9 @@
             if (product.quantity <= 0) stockSpan.className = 'text-danger font-bold';
             else if (product.quantity < product.min_stock) stockSpan.className = 'text-warning font-bold';
             else stockSpan.className = 'text-success';
+
+            const packSpan = document.getElementById('sel_pack_size');
+            if (packSpan) packSpan.textContent = product.pack_size || 1;
 
             // 5. Variations
             if (product.has_sub) {
@@ -619,5 +794,109 @@
             });
         }
     });
+
+    // ── QUICK ADD PRODUCT ────────────────────────────────────────────────────
+    // Helper: toggle variation sub-fields
+    window.qpToggleSub = function (checkbox) {
+        document.getElementById('qp-sub-fields').classList.toggle('d-none', !checkbox.checked);
+    };
+
+    window.quickSaveProduct = async function () {
+        const errBox  = document.getElementById('qp-error');
+        const saveBtn = document.getElementById('qp-save-btn');
+        errBox.classList.add('d-none');
+
+        // ── Gather all fields ────────────────────────────────────────────
+        const supplier_id    = document.getElementById('qp-supplier').value;
+        const product_name   = document.getElementById('qp-name').value.trim();
+        const category       = document.getElementById('qp-category').value.trim();
+        const unit           = document.getElementById('qp-unit').value;
+        const barcode        = document.getElementById('qp-barcode').value.trim();
+        const hsn_code       = document.getElementById('qp-hsn').value.trim();
+        const gst_rate       = parseFloat(document.getElementById('qp-gst').value) || 0;
+        const purchase_name  = document.getElementById('qp-purchase-name').value.trim();
+        const purchase_price = parseFloat(document.getElementById('qp-purchase-price').value) || 0;
+        const sales_price    = parseFloat(document.getElementById('qp-mrp').value) || 0;
+        const min_stock      = parseInt(document.getElementById('qp-min-stock').value) || 5;
+        const max_stock      = parseInt(document.getElementById('qp-max-stock').value) || 100;
+        const pack_size      = parseInt(document.getElementById('qp-pack-size').value) || 1;
+        const has_subcategory = document.getElementById('qp-has-sub').checked;
+        const subcategory_type    = document.getElementById('qp-sub-type').value.trim();
+        const subcategory_options = document.getElementById('qp-sub-opts').value.trim();
+
+        // ── Client-side validation ───────────────────────────────────────
+        if (!supplier_id) {
+            errBox.textContent = 'Supplier is required.';
+            errBox.classList.remove('d-none');
+            return;
+        }
+        if (!product_name) {
+            errBox.textContent = 'Product Name is required.';
+            errBox.classList.remove('d-none');
+            return;
+        }
+        if (!category) {
+            errBox.textContent = 'Category is required.';
+            errBox.classList.remove('d-none');
+            return;
+        }
+
+        saveBtn.disabled    = true;
+        saveBtn.textContent = 'Saving…';
+
+        try {
+            const res  = await fetch('/api/quick_add_product', {
+                method : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body   : JSON.stringify({
+                    supplier_id, product_name, purchase_name, category, unit,
+                    barcode, hsn_code, gst_rate,
+                    purchase_price, sales_price,
+                    min_stock, max_stock, pack_size,
+                    has_subcategory, subcategory_type, subcategory_options
+                })
+            });
+            const data = await res.json();
+
+            if (!res.ok) {
+                errBox.textContent = data.error || 'Server error. Please try again.';
+                errBox.classList.remove('d-none');
+                return;
+            }
+
+            // ── Inject into the live in-memory product catalog
+            const p = data.product;
+            allProducts.push(p);
+
+            // ── Reset form fields
+            ['qp-name','qp-purchase-name','qp-category','qp-barcode',
+             'qp-hsn','qp-mrp','qp-purchase-price','qp-sub-type','qp-sub-opts']
+                .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+            document.getElementById('qp-gst').value       = '0';
+            document.getElementById('qp-min-stock').value = '10';
+            document.getElementById('qp-max-stock').value = '100';
+            document.getElementById('qp-pack-size').value = '1';
+            document.getElementById('qp-unit').value      = 'Pkt';
+            document.getElementById('qp-has-sub').checked = false;
+            document.getElementById('qp-sub-fields').classList.add('d-none');
+
+            // ── Close modal and auto-select new product into cart flow
+            closeModal('quickProductModal');
+            checkPriceAndSelect(p);
+
+        } catch (err) {
+            errBox.textContent = 'Network error: ' + err.message;
+            errBox.classList.remove('d-none');
+        } finally {
+            saveBtn.disabled    = false;
+            saveBtn.textContent = 'Save Product';
+        }
+    };
+
+    // Enter key on Product Name field triggers save
+    document.getElementById('qp-name')?.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); quickSaveProduct(); }
+    });
+
 </script>
 {% endblock %}

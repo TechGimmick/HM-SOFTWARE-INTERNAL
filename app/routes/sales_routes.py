@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session, make_response
 from flask_login import login_required, current_user
 from app.extensions import db
-from app.models import Sale, SaleItem, Product, Customer
+from app.models import Sale, SaleItem, Product, Customer, Warehouse, WarehouseStock
 from sqlalchemy import func, case
 import json
 from datetime import datetime, timedelta
@@ -54,7 +54,8 @@ def get_product_details(product_id):
         'gst_rate': float(p.gst_rate) if p.gst_rate is not None else 0.0,
         'has_sub': bool(p.has_subcategory),
         'sub_type': p.subcategory_type or '',
-        'sub_opts': p.subcategory_options.split(',') if p.subcategory_options else []
+        'sub_opts': p.subcategory_options.split(',') if p.subcategory_options else [],
+        'pack_size': p.pack_size or 1
     })
 
 def add_new_client_db(name, phone=None):
@@ -114,7 +115,7 @@ def sales_page():
     if abs(net_balance) > 0.1:
         client_balances[selected_client] = net_balance
     
-    return render_template('sales.html', client_list=client_list, client_balances=client_balances, selected_client=selected_client, categories=categories, all_products_json=all_products_json, product_catalog_json=product_catalog_json)
+    return render_template('sales.html', client_list=client_list, client_balances=client_balances, selected_client=selected_client, categories=categories, all_products_json=all_products_json, product_catalog_json=product_catalog_json, warehouses=Warehouse.query.order_by(Warehouse.name).all())
 
 @sales_bp.route("/add_client", methods=["POST"])
 @login_required
@@ -131,21 +132,75 @@ def add_client():
             flash("Client exists or invalid.", "warning")
     return redirect(url_for('sales.sales_page'))
 
+
+
 @sales_bp.route("/process_sale", methods=["POST"])
 @login_required
 def process_sale():
     try:
         client_name = request.form.get('client_name')
         cart_json = request.form.get('sales_cart')
+        warehouse_id = request.form.get('warehouse_id')
         if not client_name or not cart_json: return redirect(url_for('sales.sales_page'))
 
         cart_items = json.loads(cart_json)
-        new_sale = Sale(client_name=client_name)
+        bill_type = request.form.get('bill_type', 'simple')
+
+        if bill_type == 'tally':
+            from app.models import TallyBill, TallyBillItem
+            invoice_number = request.form.get('invoice_number')
+            tally_payment_status = request.form.get('tally_payment_status')
+            credit_period = request.form.get('credit_period')
+            try:
+                credit_period = int(credit_period)
+            except (ValueError, TypeError):
+                credit_period = None
+                
+            payment_mode = None
+            paid_cash = 0.0
+            paid_online = 0.0
+            if tally_payment_status == 'Payment Received':
+                raw_cash = request.form.get('tally_cash_amt') or '0'
+                raw_online = request.form.get('tally_online_amt') or '0'
+                paid_cash = float(raw_cash)
+                paid_online = float(raw_online)
+                
+                modes = []
+                if paid_cash > 0: modes.append("Cash")
+                if paid_online > 0: modes.append("Online")
+                payment_mode = " + ".join(modes) if modes else None
+            
+            new_tally = TallyBill(
+                client_name=client_name,
+                invoice_number=invoice_number,
+                payment_status=tally_payment_status,
+                payment_mode=payment_mode,
+                paid_cash=paid_cash,
+                paid_online=paid_online,
+                credit_period=credit_period,
+                order_status='Order Pending',
+                warehouse_id=warehouse_id
+            )
+            db.session.add(new_tally)
+            db.session.flush()
+            for item in cart_items:
+                qty = int(item.get('qty', 0))
+                if qty <= 0: continue
+                db.session.add(TallyBillItem(
+                    tally_bill_id=new_tally.id,
+                    product_name=item['name'],
+                    qty=qty
+                ))
+            db.session.commit()
+            flash(f"Tally Bill #{invoice_number} recorded for {client_name}.", "success")
+            return redirect(url_for('sales.tally_sales_page'))
+
+        # --- NORMAL SIMPLE BILL SAVING ---
+        new_sale = Sale(client_name=client_name, warehouse_id=warehouse_id)
         db.session.add(new_sale)
-        # flush() writes the row and gives us new_sale.id — no round-trip commit yet
         db.session.flush()
 
-        # --- Batch-load all products in 2 queries max (by ID + by name) ---
+        # Batch-load all products
         id_items   = [item for item in cart_items if item.get('id')  and int(item.get('qty', 0)) > 0]
         name_items = [item for item in cart_items if not item.get('id') and int(item.get('qty', 0)) > 0]
 
@@ -170,6 +225,9 @@ def process_sale():
             product = id_map.get(item['id']) if item.get('id') else name_map.get(item['name'].lower())
             if product:
                 product.quantity -= qty
+                if warehouse_id:
+                    ws = WarehouseStock.query.filter_by(warehouse_id=warehouse_id, product_id=product.id).first()
+                    if ws: ws.quantity -= qty
 
             line_total = float(item['total'])
             running_total += line_total
@@ -180,7 +238,7 @@ def process_sale():
             ))
 
         new_sale.grand_total = running_total
-        db.session.commit()   # single commit for the whole bill
+        db.session.commit()   
         flash(f"Bill No. {new_sale.id} recorded.", "success")
     except Exception as e:
         db.session.rollback()
@@ -358,7 +416,7 @@ def edit_bill(sales_id):
         base_unit_price = (item.total_price / (1 + (gst_percent/100))) / item.qty_sold if item.qty_sold > 0 else 0
         bill_data['items'].append({'category': item.category, 'name': item.product_name, 'description': item.description, 'qty': item.qty_sold, 'unit': item.unit, 'mrp': base_unit_price, 'total': item.total_price, 'gst': gst_percent})
     
-    return render_template('edit_bill.html', bill=bill_data, client_list=client_list, categories=categories, product_catalog_json=product_catalog_json)
+    return render_template('edit_bill.html', bill=bill_data, client_list=client_list, categories=categories, product_catalog_json=product_catalog_json, warehouses=Warehouse.query.order_by(Warehouse.name).all())
 
 @sales_bp.route("/get_last_sale_price")
 @login_required
@@ -392,9 +450,11 @@ def get_last_sale_price():
 @login_required
 def process_edit_sale():
     try:
-        sales_id   = request.form.get('sales_id')
+        sales_id = request.form.get('sales_id')
+        bill_type = request.form.get('bill_type', 'simple')
         client_name = request.form.get('client_name')
         cart_json  = request.form.get('sales_cart')
+        warehouse_id = request.form.get('warehouse_id')
 
         sale = db.session.get(Sale, sales_id)
         if not sale or not cart_json: return redirect(url_for('sales.sales_log'))
@@ -417,6 +477,10 @@ def process_edit_sale():
                         or old_prod_map.get(oi.product_name.split(' - ')[0].strip() if ' - ' in oi.product_name else None))
                 if prod:
                     prod.quantity += oi.qty_sold
+                    w_id = sale.warehouse_id or warehouse_id
+                    if w_id:
+                        ws = WarehouseStock.query.filter_by(warehouse_id=w_id, product_id=prod.id).first()
+                        if ws: ws.quantity += oi.qty_sold
 
         # --- 2. Handle delete-bill case ---
         if not cart_items:
@@ -429,13 +493,19 @@ def process_edit_sale():
                     flash(f"Reverted ₹{sale.wallet_credit} from {customer.name}'s wallet.", "info")
             db.session.delete(sale)
             db.session.commit()
-            flash(f"Bill #{sales_id} deleted.", "warning")
-            return redirect(url_for('sales.sales_log'))
+        
+        if bill_type == 'tally':
+            flash(f"Tally Bill saved for {client_name}!", "success")
+            return redirect(url_for('sales.tally_sales_page'))
+        else:
+            flash(f"Sale dynamically recorded for {client_name}!", "success")
+            return redirect(url_for('sales.sales_page'))
 
         # --- 3. Clear old line items ---
         for oi in old_items: db.session.delete(oi)
 
         sale.client_name = client_name
+        sale.warehouse_id = warehouse_id
         running_total = 0.0
 
         # --- 4. BATCH load new products (1 query by ID + 1 by name instead of N) ---
@@ -466,6 +536,9 @@ def process_edit_sale():
                 product = new_name_map.get(base.lower())
             if product:
                 product.quantity -= qty
+                if warehouse_id:
+                    ws = WarehouseStock.query.filter_by(warehouse_id=warehouse_id, product_id=product.id).first()
+                    if ws: ws.quantity -= qty
 
             line_total = float(item['total'])
             running_total += line_total
@@ -582,3 +655,103 @@ def update_status():
         flash(f"Error: {e}", "danger")
         
     return redirect(url_for('sales.sales_log'))
+
+    return redirect(url_for('sales.sales_log'))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  QUICK ADD PRODUCT  — create a new product inline from the sales page
+#  Field set is identical to purchase.add_product_to_supplier
+# ─────────────────────────────────────────────────────────────────────────────
+@sales_bp.route('/api/quick_add_product', methods=['POST'])
+@login_required
+def quick_add_product():
+    """
+    Creates a new Product record from the sales page modal.
+    Accepts JSON; returns the new product's full detail for immediate
+    cart use without a page reload.
+    Field set mirrors purchase.add_product_to_supplier exactly.
+    """
+    if current_user.role not in ('admin', 'sales'):
+        return jsonify({'error': 'Access denied.'}), 403
+
+    data = request.get_json(silent=True) or {}
+
+    sales_name     = (data.get('product_name') or '').strip()
+    purchase_name  = (data.get('purchase_name') or '').strip() or None
+    category       = (data.get('category') or '').strip()
+    supplier_id    = data.get('supplier_id')
+    unit           = (data.get('unit') or 'Nos.').strip()
+    barcode        = (data.get('barcode') or '').strip() or None
+    hsn_code       = (data.get('hsn_code') or '').strip() or None
+    gst_rate       = float(data.get('gst_rate') or 0)
+    purchase_price = float(data.get('purchase_price') or 0)
+    mrp            = float(data.get('sales_price') or 0)
+    min_stock      = int(data.get('min_stock') or 5)
+    max_stock      = int(data.get('max_stock') or 100)
+    pack_size      = int(data.get('pack_size') or 1)
+    has_sub        = bool(data.get('has_subcategory'))
+    sub_type       = (data.get('subcategory_type') or '').strip() or None
+    sub_opts       = (data.get('subcategory_options') or '').strip() or None
+
+    if not sales_name:
+        return jsonify({'error': 'Product name is required.'}), 400
+    if not category:
+        return jsonify({'error': 'Category is required.'}), 400
+    if not supplier_id:
+        return jsonify({'error': 'Supplier is required.'}), 400
+
+    # Duplicate name check (case-insensitive)
+    exists = Product.query.filter(func.lower(Product.name) == sales_name.lower()).first()
+    if exists:
+        return jsonify({'error': f'A product named "{exists.name}" already exists.'}), 409
+
+    # Barcode uniqueness check
+    if barcode:
+        bc_clash = Product.query.filter_by(barcode=barcode).first()
+        if bc_clash:
+            return jsonify({'error': f'Barcode "{barcode}" is already assigned to "{bc_clash.name}".'}), 409
+
+    product = Product(
+        name              = sales_name,
+        purchase_name     = purchase_name if purchase_name else sales_name,
+        category          = category,
+        unit              = unit,
+        barcode           = barcode,
+        hsn_code          = hsn_code,
+        gst_rate          = gst_rate,
+        purchase_price    = purchase_price,
+        mrp               = mrp,
+        min_stock         = min_stock,
+        max_stock         = max_stock,
+        pack_size         = pack_size,
+        has_subcategory   = has_sub,
+        subcategory_type  = sub_type if has_sub else None,
+        subcategory_options = sub_opts if has_sub else None,
+        quantity          = 0,
+        supplier_id       = supplier_id,
+    )
+    db.session.add(product)
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'product': {
+            'id'        : product.id,
+            'name'      : product.name,
+            'raw_name'  : product.name,
+            'category'  : product.category,
+            'unit'      : product.unit,
+            'mrp'       : product.mrp,
+            'purchase_price': product.purchase_price,
+            'gst_rate'  : product.gst_rate,
+            'quantity'  : 0,
+            'min_stock' : product.min_stock,
+            'pack_size' : product.pack_size,
+            'has_sub'   : has_sub,
+            'sub_type'  : sub_type,
+            'sub_opts'  : sub_opts.split(',') if (has_sub and sub_opts) else [],
+            'barcode'   : product.barcode,
+        }
+    }), 201
+

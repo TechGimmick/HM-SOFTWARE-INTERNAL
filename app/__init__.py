@@ -30,12 +30,15 @@ def create_app():
     from app.routes.inventory_routes import inventory_bp
     from app.routes.pdf_routes import pdf_bp
     from app.routes.purchase_routes import purchase_bp
+    from app.routes.tally_routes import tally_bp
+    from app.routes.cashbook_routes import cashbook_bp
      
     app.register_blueprint(purchase_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(sales_bp)
     app.register_blueprint(inventory_bp)
     app.register_blueprint(pdf_bp)
+    app.register_blueprint(tally_bp)
+    app.register_blueprint(cashbook_bp)
     
-
     return app
