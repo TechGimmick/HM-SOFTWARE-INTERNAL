@@ -349,6 +349,14 @@ function openDrawer(po) {
     footer += `<button class="btn btn-sm btn-primary" onclick="openReceiveModal(currentPO.id, currentPO.items)">✔ Mark Received</button>`;
   }
 
+  // Delete PO — admins only
+  if (CURRENT_ROLE === 'admin') {
+    footer += `<form action="/delete_purchase" method="POST" onsubmit="return confirm('Permanently delete this PO from the database? This action cannot be undone.')" style="display:inline;">
+      <input type="hidden" name="purchase_id" value="${po.id}">
+      <button type="submit" class="btn btn-sm btn-danger fw-bold">🗑 Delete PO</button>
+    </form>`;
+  }
+
   footer += `<a href="/purchase?edit_po=${po.id}" class="btn btn-sm btn-indigo">✏ Edit PO</a>`;
   footer += `<a href="/download_po_checklist/${po.id}" class="btn btn-sm btn-secondary" target="_blank">📋 Inv Check</a>`;
   footer += `<button class="btn btn-sm btn-info" onclick="openDownloadPOModal('${po.id}')">📄 PO PDF</button>`;

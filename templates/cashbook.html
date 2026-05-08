@@ -200,10 +200,10 @@
     <div class="cb-section" id="section-expenses">
         <div class="cb-section-header">
             <div class="cb-section-title">
-                💸 Expenses / Debits
+                💸 Manual Entries (Expenses & Incomes)
                 <span class="cb-section-badge red" id="expense-count-badge">{{ expense_entries|length }} entries</span>
             </div>
-            <div class="cb-section-hint">Tea, freight, petty cash, etc.</div>
+            <div class="cb-section-hint">Tea, freight, petty cash, manual deposits, etc.</div>
         </div>
         <div class="table-responsive">
             <table class="cb-table" id="expense-table">
@@ -212,6 +212,7 @@
                         <th class="cb-col-narrow">Time</th>
                         <th>Description</th>
                         <th class="cb-col-mode">Mode</th>
+                        <th class="cb-col-mode">Type</th>
                         <th class="text-end cb-col-amount">Amount ₹</th>
                         <th class="cb-col-action"></th>
                     </tr>
@@ -227,7 +228,12 @@
                                     {{ e.mode }}
                                 </span>
                             </td>
-                            <td class="td-amount amount-red">₹{{ "{:,.2f}".format(e.amount) }}</td>
+                            <td>
+                                <span class="cb-type-pill {% if e.type == 'Income' %}cb-pill-retail{% else %}cb-pill-tally{% endif %}">
+                                    {{ e.type }}
+                                </span>
+                            </td>
+                            <td class="td-amount {% if e.type == 'Income' %}amount-green{% else %}amount-red{% endif %}">₹{{ "{:,.2f}".format(e.amount) }}</td>
                             <td class="td-actions">
                                 {% if current_user.role == 'admin' %}
                                 <button class="cb-del-btn" onclick="deleteExpense({{ e.id }})" title="Delete entry">✕</button>
@@ -245,16 +251,12 @@
         <!-- Footer totals for expenses -->
         <div class="cb-section-footer" id="expense-footer">
             <div class="cb-foot-item">
-                <span class="cb-foot-label">Cash:</span>
-                <span class="cb-foot-value red" id="expense-total-cash">₹{{ "{:,.2f}".format(totals.expense_cash) }}</span>
-            </div>
-            <div class="cb-foot-item">
-                <span class="cb-foot-label">Online:</span>
-                <span class="cb-foot-value red" id="expense-total-online">₹{{ "{:,.2f}".format(totals.expense_online) }}</span>
-            </div>
-            <div class="cb-foot-item">
-                <span class="cb-foot-label">Total:</span>
+                <span class="cb-foot-label">Total Expense:</span>
                 <span class="cb-foot-value red" id="expense-total">₹{{ "{:,.2f}".format(totals.expense_total) }}</span>
+            </div>
+            <div class="cb-foot-item">
+                <span class="cb-foot-label">Total Income:</span>
+                <span class="cb-foot-value green" id="income-total">₹{{ "{:,.2f}".format(totals.income_total) }}</span>
             </div>
         </div>
 
@@ -264,6 +266,10 @@
                    placeholder="Expense description (e.g. Tea, Freight, Loading)" autocomplete="off">
             <input class="form-control cb-input-amt" type="number" id="exp-amt"
                    placeholder="Amount (₹)" min="0.01" step="0.01" autocomplete="off">
+            <select class="form-select cb-mode-select" id="exp-type">
+                <option value="Expense">Expense</option>
+                <option value="Income">Income / Deposit</option>
+            </select>
             <select class="form-select cb-mode-select" id="exp-mode">
                 <option value="Cash">Cash</option>
                 <option value="Online">Online</option>
@@ -322,6 +328,7 @@ async function addExpense() {
     const desc = document.getElementById('exp-desc').value.trim();
     const amt  = parseFloat(document.getElementById('exp-amt').value);
     const mode = document.getElementById('exp-mode').value;
+    const type = document.getElementById('exp-type').value;
     const btn  = document.getElementById('add-exp-btn');
 
     if (!desc || !(amt > 0)) {
@@ -336,7 +343,7 @@ async function addExpense() {
         const res = await fetch('/cashbook/add_expense', {
             method : 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body   : JSON.stringify({ date: TODAY_STR, description: desc, amount: amt, mode: mode })
+            body   : JSON.stringify({ date: TODAY_STR, description: desc, amount: amt, mode: mode, type: type })
         });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || 'Server error');
@@ -355,7 +362,8 @@ async function addExpense() {
             <td class="td-time">${timeStr}</td>
             <td class="fw-semibold">${escHtml(desc)}</td>
             <td><span class="cb-type-pill ${mode === 'Cash' ? 'cb-pill-retail' : 'cb-pill-tally'}">${mode}</span></td>
-            <td class="td-amount amount-red">${fmt(amt)}</td>
+            <td><span class="cb-type-pill ${type === 'Income' ? 'cb-pill-retail' : 'cb-pill-tally'}">${type}</span></td>
+            <td class="td-amount ${type === 'Income' ? 'amount-green' : 'amount-red'}">${fmt(amt)}</td>
             <td class="td-actions">
                 ${IS_ADMIN ? `<button class="cb-del-btn" onclick="deleteExpense(${data.id})" title="Delete">✕</button>` : ''}
             </td>`;
@@ -420,9 +428,9 @@ async function refreshTotals() {
         document.getElementById('sum-net-total').textContent     = fmt(t.net_total);
 
         // Expense section footer
-        document.getElementById('expense-total-cash').textContent   = fmt(t.expense_cash);
-        document.getElementById('expense-total-online').textContent = fmt(t.expense_online);
         document.getElementById('expense-total').textContent        = fmt(t.expense_total);
+        const incTot = document.getElementById('income-total');
+        if (incTot) incTot.textContent = fmt(t.income_total);
         document.getElementById('expense-count-badge').textContent  = data.expense_entries.length + ' entries';
 
         // Grand total

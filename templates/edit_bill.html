@@ -9,11 +9,222 @@
 
     <!-- DATA FIX: Inject JSON directly into JS variable, same as sales.html -->
     <script>
+    function openModal(id) { document.getElementById(id).classList.add('active'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
         window.EDIT_PRODUCT_DATA   = {{ product_catalog_json | safe }};
         window.EXISTING_BILL_ITEMS = {{ bill["items"] | tojson | safe }};
         // Inject the bill's real client name (may contain " - phone") for last-price lookup
         window.BILL_CLIENT_NAME    = {{ bill.client_name | tojson }};
-    </script>
+    
+// ── QUICK ADD PRODUCT ────────────────────────────────────────────────────
+
+    // Helper: toggle variation sub-fields
+
+    window.qpToggleSub = function (checkbox) {
+
+        document.getElementById('qp-sub-fields').classList.toggle('d-none', !checkbox.checked);
+
+    };
+
+
+
+    window.quickSaveProduct = async function () {
+
+        const errBox  = document.getElementById('qp-error');
+
+        const saveBtn = document.getElementById('qp-save-btn');
+
+        errBox.classList.add('d-none');
+
+
+
+        // ── Gather all fields ────────────────────────────────────────────
+
+        const supplier_id    = document.getElementById('qp-supplier').value;
+
+        const product_name   = document.getElementById('qp-name').value.trim();
+
+        const category       = document.getElementById('qp-category').value.trim();
+
+        const unit           = document.getElementById('qp-unit').value;
+
+        const barcode        = document.getElementById('qp-barcode').value.trim();
+
+        const hsn_code       = document.getElementById('qp-hsn').value.trim();
+
+        const gst_rate       = parseFloat(document.getElementById('qp-gst').value) || 0;
+
+        const purchase_name  = document.getElementById('qp-purchase-name').value.trim();
+
+        const purchase_price = parseFloat(document.getElementById('qp-purchase-price').value) || 0;
+
+        const sales_price    = parseFloat(document.getElementById('qp-mrp').value) || 0;
+
+        const min_stock      = parseInt(document.getElementById('qp-min-stock').value) || 5;
+
+        const max_stock      = parseInt(document.getElementById('qp-max-stock').value) || 100;
+
+        const pack_size      = parseInt(document.getElementById('qp-pack-size').value) || 1;
+
+        const has_subcategory = document.getElementById('qp-has-sub').checked;
+
+        const subcategory_type    = document.getElementById('qp-sub-type').value.trim();
+
+        const subcategory_options = document.getElementById('qp-sub-opts').value.trim();
+
+
+
+        // ── Client-side validation ───────────────────────────────────────
+
+        if (!supplier_id) {
+
+            errBox.textContent = 'Supplier is required.';
+
+            errBox.classList.remove('d-none');
+
+            return;
+
+        }
+
+        if (!product_name) {
+
+            errBox.textContent = 'Product Name is required.';
+
+            errBox.classList.remove('d-none');
+
+            return;
+
+        }
+
+        if (!category) {
+
+            errBox.textContent = 'Category is required.';
+
+            errBox.classList.remove('d-none');
+
+            return;
+
+        }
+
+
+
+        saveBtn.disabled    = true;
+
+        saveBtn.textContent = 'Saving…';
+
+
+
+        try {
+
+            const res  = await fetch('/api/quick_add_product', {
+
+                method : 'POST',
+
+                headers: { 'Content-Type': 'application/json' },
+
+                body   : JSON.stringify({
+
+                    supplier_id, product_name, purchase_name, category, unit,
+
+                    barcode, hsn_code, gst_rate,
+
+                    purchase_price, sales_price,
+
+                    min_stock, max_stock, pack_size,
+
+                    has_subcategory, subcategory_type, subcategory_options
+
+                })
+
+            });
+
+            const data = await res.json();
+
+
+
+            if (!res.ok) {
+
+                errBox.textContent = data.error || 'Server error. Please try again.';
+
+                errBox.classList.remove('d-none');
+
+                return;
+
+            }
+
+
+
+            // ── Inject into the live in-memory product catalog
+
+            const p = data.product;
+
+            allProducts.push(p);
+
+
+
+            // ── Reset form fields
+
+            ['qp-name','qp-purchase-name','qp-category','qp-barcode',
+
+             'qp-hsn','qp-mrp','qp-purchase-price','qp-sub-type','qp-sub-opts']
+
+                .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+
+            document.getElementById('qp-gst').value       = '0';
+
+            document.getElementById('qp-min-stock').value = '10';
+
+            document.getElementById('qp-max-stock').value = '100';
+
+            document.getElementById('qp-pack-size').value = '1';
+
+            document.getElementById('qp-unit').value      = 'Pkt';
+
+            document.getElementById('qp-has-sub').checked = false;
+
+            document.getElementById('qp-sub-fields').classList.add('d-none');
+
+
+
+            // ── Close modal and auto-select new product into cart flow
+
+            closeModal('quickProductModal');
+
+            checkPriceAndSelect(p);
+
+
+
+        } catch (err) {
+
+            errBox.textContent = 'Network error: ' + err.message;
+
+            errBox.classList.remove('d-none');
+
+        } finally {
+
+            saveBtn.disabled    = false;
+
+            saveBtn.textContent = 'Save Product';
+
+        }
+
+    };
+
+
+
+    // Enter key on Product Name field triggers save
+
+    document.getElementById('qp-name')?.addEventListener('keydown', e => {
+
+        if (e.key === 'Enter') { e.preventDefault(); quickSaveProduct(); }
+
+    });
+
+
+
+
+</script>
 
     <form method="POST" action="{{ url_for('sales.process_edit_sale') }}">
         <input type="hidden" name="sales_id" value="{{ bill.sales_id }}">
@@ -45,12 +256,21 @@
                     <label>Qty</label>
                     <input type="number" id="qty_input" min="1" value="1">
                 </div>
+                <div class="form-group">
+                    <label>&nbsp;</label>
+                    <button type="button" class="btn btn-outline-success"
+                            id="open-quick-product-btn"
+                            onclick="openModal('quickProductModal')"
+                            title="Add a brand new product to the catalog">
+                        + New Product
+                    </button>
+                </div>
             </div>
 
             <!-- Preview Box -->
             <div id="selected_item_info" class="selection-preview">
                 <strong>Selected:</strong> <span id="sel_name" class="text-primary"></span><br>
-                <small>Price: ₹<span id="sel_price"></span> | Unit: <span id="sel_unit"></span> | Stock: <span
+                <small>Price: ₹<span id="sel_price"></span> | Unit: <span id="sel_unit"></span> | Pack Size: <span id="sel_pack_size"></span> | Stock: <span
                         id="sel_stock"></span></small>
 
                 <div id="variation-selector" class="variation-box">
@@ -151,6 +371,8 @@
     </form>
 </div>
 
+
+
 <!-- PRICE CHOICE MODAL -->
 <div id="priceChoiceModal" class="custom-modal" style="z-index: 3000;">
     <div class="custom-modal-content" style="max-width: 400px; text-align: center;">
@@ -178,8 +400,51 @@
 </div>
 
 <script>
+    function openModal(id) { document.getElementById(id).classList.add('active'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
     document.addEventListener("DOMContentLoaded", function () {
         // 1. Initialize Product Data
+// Fetch Suppliers for Quick Add Product Modal
+
+        fetch('/get_suppliers')
+
+            .then(r => r.json())
+
+            .then(suppliers => {
+
+                const sel = document.getElementById('qp-supplier');
+
+                if (sel) {
+
+                    sel.innerHTML = '<option value="" disabled selected>-- Select Supplier --</option>';
+
+                    suppliers.forEach(s => {
+
+                        const opt = document.createElement('option');
+
+                        opt.value = s.id;
+
+                        opt.textContent = s.name;
+
+                        sel.appendChild(opt);
+
+                    });
+
+                }
+
+            })
+
+            .catch(() => {
+
+                const sel = document.getElementById('qp-supplier');
+
+                if (sel) sel.innerHTML = '<option value="" disabled selected>-- Could not load --</option>';
+
+            });
+
+
+
         let allProducts = [];
         if (window.EDIT_PRODUCT_DATA) {
             const rawData = window.EDIT_PRODUCT_DATA;
@@ -260,7 +525,7 @@
                     fetch(`/get_last_sale_price?client_name=${encodeURIComponent(clientName)}&product_name=${encodeURIComponent(enriched.name)}&_=${Date.now()}`)
                         .then(res => res.json())
                         .then(data => {
-                            if (data.found && Math.abs(data.price - enriched.mrp) > 0.01) {
+                            if (data.found) {
                                 tempCurrentPrice = enriched.mrp;
                                 tempLastPrice = data.price;
                                 selectedProduct = enriched;
@@ -370,6 +635,9 @@
             const safePrice = (effectivePrice != null && !isNaN(Number(effectivePrice))) ? effectivePrice : (product.mrp || 0);
             document.getElementById('sel_price').textContent = safePrice;
             document.getElementById('sel_unit').textContent = product.unit;
+
+            const packSpan = document.getElementById('sel_pack_size');
+            if (packSpan) packSpan.textContent = product.pack_size || 1;
 
             const stockSpan = document.getElementById('sel_stock');
             stockSpan.textContent = product.quantity;
@@ -537,5 +805,213 @@
             });
         }
     });
+
+// ── QUICK ADD PRODUCT ────────────────────────────────────────────────────
+
+    // Helper: toggle variation sub-fields
+
+    window.qpToggleSub = function (checkbox) {
+
+        document.getElementById('qp-sub-fields').classList.toggle('d-none', !checkbox.checked);
+
+    };
+
+
+
+    window.quickSaveProduct = async function () {
+
+        const errBox  = document.getElementById('qp-error');
+
+        const saveBtn = document.getElementById('qp-save-btn');
+
+        errBox.classList.add('d-none');
+
+
+
+        // ── Gather all fields ────────────────────────────────────────────
+
+        const supplier_id    = document.getElementById('qp-supplier').value;
+
+        const product_name   = document.getElementById('qp-name').value.trim();
+
+        const category       = document.getElementById('qp-category').value.trim();
+
+        const unit           = document.getElementById('qp-unit').value;
+
+        const barcode        = document.getElementById('qp-barcode').value.trim();
+
+        const hsn_code       = document.getElementById('qp-hsn').value.trim();
+
+        const gst_rate       = parseFloat(document.getElementById('qp-gst').value) || 0;
+
+        const purchase_name  = document.getElementById('qp-purchase-name').value.trim();
+
+        const purchase_price = parseFloat(document.getElementById('qp-purchase-price').value) || 0;
+
+        const sales_price    = parseFloat(document.getElementById('qp-mrp').value) || 0;
+
+        const min_stock      = parseInt(document.getElementById('qp-min-stock').value) || 5;
+
+        const max_stock      = parseInt(document.getElementById('qp-max-stock').value) || 100;
+
+        const pack_size      = parseInt(document.getElementById('qp-pack-size').value) || 1;
+
+        const has_subcategory = document.getElementById('qp-has-sub').checked;
+
+        const subcategory_type    = document.getElementById('qp-sub-type').value.trim();
+
+        const subcategory_options = document.getElementById('qp-sub-opts').value.trim();
+
+
+
+        // ── Client-side validation ───────────────────────────────────────
+
+        if (!supplier_id) {
+
+            errBox.textContent = 'Supplier is required.';
+
+            errBox.classList.remove('d-none');
+
+            return;
+
+        }
+
+        if (!product_name) {
+
+            errBox.textContent = 'Product Name is required.';
+
+            errBox.classList.remove('d-none');
+
+            return;
+
+        }
+
+        if (!category) {
+
+            errBox.textContent = 'Category is required.';
+
+            errBox.classList.remove('d-none');
+
+            return;
+
+        }
+
+
+
+        saveBtn.disabled    = true;
+
+        saveBtn.textContent = 'Saving…';
+
+
+
+        try {
+
+            const res  = await fetch('/api/quick_add_product', {
+
+                method : 'POST',
+
+                headers: { 'Content-Type': 'application/json' },
+
+                body   : JSON.stringify({
+
+                    supplier_id, product_name, purchase_name, category, unit,
+
+                    barcode, hsn_code, gst_rate,
+
+                    purchase_price, sales_price,
+
+                    min_stock, max_stock, pack_size,
+
+                    has_subcategory, subcategory_type, subcategory_options
+
+                })
+
+            });
+
+            const data = await res.json();
+
+
+
+            if (!res.ok) {
+
+                errBox.textContent = data.error || 'Server error. Please try again.';
+
+                errBox.classList.remove('d-none');
+
+                return;
+
+            }
+
+
+
+            // ── Inject into the live in-memory product catalog
+
+            const p = data.product;
+
+            allProducts.push(p);
+
+
+
+            // ── Reset form fields
+
+            ['qp-name','qp-purchase-name','qp-category','qp-barcode',
+
+             'qp-hsn','qp-mrp','qp-purchase-price','qp-sub-type','qp-sub-opts']
+
+                .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+
+            document.getElementById('qp-gst').value       = '0';
+
+            document.getElementById('qp-min-stock').value = '10';
+
+            document.getElementById('qp-max-stock').value = '100';
+
+            document.getElementById('qp-pack-size').value = '1';
+
+            document.getElementById('qp-unit').value      = 'Pkt';
+
+            document.getElementById('qp-has-sub').checked = false;
+
+            document.getElementById('qp-sub-fields').classList.add('d-none');
+
+
+
+            // ── Close modal and auto-select new product into cart flow
+
+            closeModal('quickProductModal');
+
+            checkPriceAndSelect(p);
+
+
+
+        } catch (err) {
+
+            errBox.textContent = 'Network error: ' + err.message;
+
+            errBox.classList.remove('d-none');
+
+        } finally {
+
+            saveBtn.disabled    = false;
+
+            saveBtn.textContent = 'Save Product';
+
+        }
+
+    };
+
+
+
+    // Enter key on Product Name field triggers save
+
+    document.getElementById('qp-name')?.addEventListener('keydown', e => {
+
+        if (e.key === 'Enter') { e.preventDefault(); quickSaveProduct(); }
+
+    });
+
+
+
+
 </script>
 {% endblock %}

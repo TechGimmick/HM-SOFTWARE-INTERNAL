@@ -78,12 +78,14 @@ def _get_cashbook_data(date_obj):
 
     expense_entries = []
     for e in raw_expenses:
+        is_income = (e.amount < 0)
         expense_entries.append({
             'id'         : e.id,
             'time'       : e.created_at.strftime('%I:%M %p') if e.created_at else '—',
             'description': e.description,
-            'amount'     : round(e.amount, 2),
+            'amount'     : round(abs(e.amount), 2),
             'mode'       : e.payment_mode,  # 'Cash' | 'Online'
+            'type'       : 'Income' if is_income else 'Expense'
         })
 
     # ── 4. Totals ──────────────────────────────────────────────────────────
@@ -91,11 +93,14 @@ def _get_cashbook_data(date_obj):
     total_retail_online = sum(r['online_in'] for r in retail_entries)
     total_tally_cash    = sum(t['cash_in']   for t in tally_entries)
     total_tally_online  = sum(t['online_in'] for t in tally_entries)
-    total_expense_cash  = sum(e['amount'] for e in expense_entries if e['mode'] == 'Cash')
-    total_expense_online= sum(e['amount'] for e in expense_entries if e['mode'] == 'Online')
+    
+    total_expense_cash  = sum(e['amount'] for e in expense_entries if e['mode'] == 'Cash' and e['type'] == 'Expense')
+    total_expense_online= sum(e['amount'] for e in expense_entries if e['mode'] == 'Online' and e['type'] == 'Expense')
+    total_income_cash   = sum(e['amount'] for e in expense_entries if e['mode'] == 'Cash' and e['type'] == 'Income')
+    total_income_online = sum(e['amount'] for e in expense_entries if e['mode'] == 'Online' and e['type'] == 'Income')
 
-    gross_cash   = total_retail_cash   + total_tally_cash
-    gross_online = total_retail_online + total_tally_online
+    gross_cash   = total_retail_cash   + total_tally_cash + total_income_cash
+    gross_online = total_retail_online + total_tally_online + total_income_online
     net_cash     = gross_cash   - total_expense_cash
     net_online   = gross_online - total_expense_online
 
@@ -109,6 +114,9 @@ def _get_cashbook_data(date_obj):
         'expense_cash'   : round(total_expense_cash,   2),
         'expense_online' : round(total_expense_online, 2),
         'expense_total'  : round(total_expense_cash + total_expense_online, 2),
+        'income_cash'    : round(total_income_cash,    2),
+        'income_online'  : round(total_income_online,  2),
+        'income_total'   : round(total_income_cash + total_income_online, 2),
         'gross_cash'     : round(gross_cash,           2),
         'gross_online'   : round(gross_online,         2),
         'net_cash'       : round(net_cash,             2),
@@ -178,7 +186,7 @@ def cashbook_data_api():
 @cashbook_bp.route('/cashbook/add_expense', methods=['POST'])
 @login_required
 def add_expense():
-    """Add a manual expense/debit entry to the cash book."""
+    """Add a manual expense/debit or income/credit entry to the cash book."""
     if current_user.role not in ['admin', 'sales']:
         return jsonify({'error': 'Access denied'}), 403
 
@@ -187,6 +195,7 @@ def add_expense():
     description = (data.get('description') or '').strip()
     amount      = float(data.get('amount') or 0)
     mode        = data.get('mode', 'Cash')  # 'Cash' | 'Online'
+    entry_type  = data.get('type', 'Expense') # 'Expense' | 'Income'
 
     if not description or amount <= 0:
         return jsonify({'error': 'Description and a positive amount are required.'}), 400
@@ -196,10 +205,13 @@ def add_expense():
     except ValueError:
         return jsonify({'error': 'Invalid date'}), 400
 
+    # Store Income as a negative amount
+    db_amount = amount if entry_type == 'Expense' else -amount
+
     entry = CashBookEntry(
         date        = date_obj,
         description = description,
-        amount      = amount,
+        amount      = db_amount,
         payment_mode= mode,
         created_by  = current_user.username,
     )

@@ -493,13 +493,8 @@ def process_edit_sale():
                     flash(f"Reverted ₹{sale.wallet_credit} from {customer.name}'s wallet.", "info")
             db.session.delete(sale)
             db.session.commit()
-        
-        if bill_type == 'tally':
-            flash(f"Tally Bill saved for {client_name}!", "success")
-            return redirect(url_for('sales.tally_sales_page'))
-        else:
-            flash(f"Sale dynamically recorded for {client_name}!", "success")
-            return redirect(url_for('sales.sales_page'))
+            flash("Bill deleted.", "success")
+            return redirect(url_for('sales.sales_log'))
 
         # --- 3. Clear old line items ---
         for oi in old_items: db.session.delete(oi)
