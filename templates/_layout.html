@@ -47,6 +47,8 @@
 
                 <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                     <!-- Dashboard with hover dropdown -->
+                    <!-- Dashboard link (Dropdown only for admin) -->
+                    {% if current_user.role == 'admin' %}
                     <li class="nav-item dropdown hmp-dash-dropdown" id="dash-nav-item">
                         <a class="nav-link fw-bold text-secondary dropdown-toggle"
                             href="{{ url_for('inventory.dashboard') }}"
@@ -69,6 +71,12 @@
                             </li>
                         </ul>
                     </li>
+                    {% else %}
+                    <li class="nav-item">
+                        <a class="nav-link fw-bold text-secondary"
+                            href="{{ url_for('inventory.dashboard') }}">Dashboard</a>
+                    </li>
+                    {% endif %}
 
 
                     {% if current_user.role == 'purchase' or current_user.role == 'admin' %}

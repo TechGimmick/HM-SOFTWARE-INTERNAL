@@ -135,8 +135,8 @@ def _get_cashbook_data(date_obj):
 @login_required
 def cashbook_page():
     """Renders the cash book standalone window."""
-    if current_user.role not in ['admin', 'sales']:
-        flash("Access Denied: Cash Book is for Sales/Admin only.", "danger")
+    if current_user.role != 'admin':
+        flash("Access Denied: Cash Book is for Admin only.", "danger")
         return redirect(url_for('inventory.dashboard'))
 
     date_str = request.args.get('date', _ist_today().strftime('%Y-%m-%d'))
@@ -187,7 +187,7 @@ def cashbook_data_api():
 @login_required
 def add_expense():
     """Add a manual expense/debit or income/credit entry to the cash book."""
-    if current_user.role not in ['admin', 'sales']:
+    if current_user.role != 'admin':
         return jsonify({'error': 'Access denied'}), 403
 
     data = request.get_json()
