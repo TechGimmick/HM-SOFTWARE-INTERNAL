@@ -3,6 +3,7 @@ from fpdf import FPDF
 from flask_login import login_required, current_user
 from app.extensions import db
 from app.models import Product, Supplier, Purchase, Warehouse, WarehouseStock
+from sqlalchemy import or_
 from collections import defaultdict
 import json
 import datetime
@@ -714,24 +715,61 @@ def download_purchase_order(purchase_id):
     supplier = db.session.get(Supplier, purchase.supplier_id)
     supplier_details = f"{purchase.supplier_name}\n"; 
     if supplier and supplier.contact_info: supplier_details += f"{supplier.contact_info}"
-    items_parsed = []; raw_str = purchase.product_name if purchase.product_name else ""
-    if ' || ' in raw_str: segments = raw_str.split(' || ')
-    else: segments = raw_str.split(', ')
+    
+    # ── Build items list for PDF using same logic as the purchase log ───────
+    items_parsed = []
     grand_total = 0.0
+    raw_str = purchase.product_name if purchase.product_name else ""
+    segments = raw_str.split(' || ') if ' || ' in raw_str else raw_str.split(', ')
+
     for seg in segments:
-        if not seg.strip(): continue
-        item_name = seg; item_qty = 0 
+        seg = seg.strip()
+        if not seg:
+            continue
+        item_name = seg
+        item_qty = 0
         if ' (x' in seg:
-            try: name_part, qty_part = seg.rsplit(' (x', 1); item_name = name_part; item_qty = int(qty_part.rstrip(')'))
-            except: pass
-        if item_qty == 0 and len(segments) == 1: item_qty = purchase.qty_purchased
-        prod = Product.query.filter_by(name=item_name).first()
-        hsn = prod.hsn_code if prod else "-"; rate = prod.purchase_price if prod else 0.0
-        gst = prod.gst_rate if prod else 0.0
-        amount = (rate * item_qty) * (1 + gst/100)
+            try:
+                # Split on last occurrence of ' (x' - handles double spaces too
+                name_part, qty_part = seg.rsplit(' (x', 1)
+                item_name = name_part  # Do NOT strip — DB names may have trailing spaces
+                item_qty = int(qty_part.rstrip(')').strip())
+            except Exception:
+                pass
+        if item_qty == 0 and len(segments) == 1:
+            item_qty = purchase.qty_purchased or 0
+
+        # 1st: exact match (works when trailing spaces in DB name match PO stored name)
+        prod = Product.query.filter(
+            or_(Product.purchase_name == item_name, Product.name == item_name)
+        ).first()
+        # 2nd: try stripped exact match
+        if not prod:
+            item_name_stripped = item_name.strip()
+            prod = Product.query.filter(
+                or_(Product.purchase_name == item_name_stripped, Product.name == item_name_stripped)
+            ).first()
+        # 3rd: case-insensitive ilike fallback
+        if not prod:
+            item_name_stripped = item_name.strip()
+            prod = Product.query.filter(
+                or_(
+                    Product.purchase_name.ilike(item_name_stripped),
+                    Product.name.ilike(item_name_stripped)
+                )
+            ).first()
+
+        hsn  = (prod.hsn_code       if prod else None) or "-"
+        rate = (prod.purchase_price  if prod else None) or 0.0
+        gst  = (prod.gst_rate        if prod else None) or 0.0
+        unit = (prod.unit            if prod else None) or "-"
+        amount = rate * item_qty * (1 + gst / 100)
         grand_total += amount
-        unit = prod.unit if prod else "-"
-        items_parsed.append({'desc': item_name, 'hsn': hsn, 'gst': gst, 'qty': item_qty, 'rate': rate, 'amount': amount, 'unit': unit})
+        items_parsed.append({
+            'desc': item_name.strip(),  # strip only for display
+            'hsn': hsn, 'gst': gst,
+            'qty': item_qty, 'rate': rate, 'amount': amount, 'unit': unit
+        })
     
     pdf = PO_PDF(); pdf.add_page(); pdf.set_margins(10, 10, 10)
     
