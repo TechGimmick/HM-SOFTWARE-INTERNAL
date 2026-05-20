@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,357 +9,548 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
+
 <body class="cb-body">
 
-<!-- ── TOP BAR ─────────────────────────────────────────────────────────── -->
-<div class="cb-topbar" id="cb-topbar">
-    <div class="cb-brand">
-        <span>📒</span>
-        <span>Cash Book</span>
-        <span class="cb-brand-sub">HMP Portal</span>
+    <!-- ── TOP BAR ─────────────────────────────────────────────────────────── -->
+    <div class="cb-topbar" id="cb-topbar">
+        <div class="cb-brand">
+            <span>📒</span>
+            <span>Cash Book</span>
+            <span class="cb-brand-sub">HMP Portal</span>
+        </div>
+        <div class="cb-topbar-right">
+            <input type="date" id="date-picker" value="{{ date_str }}" title="Jump to date"
+                onchange="jumpToDate(this.value)" class="cb-date-input">
+            <button class="cb-print-btn" onclick="window.print()">🖨️ Print</button>
+        </div>
     </div>
-    <div class="cb-topbar-right">
-        <input type="date" id="date-picker" value="{{ date_str }}"
-               title="Jump to date" onchange="jumpToDate(this.value)"
-               class="cb-date-input">
-        <button class="cb-print-btn" onclick="window.print()">🖨️ Print</button>
-    </div>
-</div>
 
-<!-- ── MAIN PAGE ───────────────────────────────────────────────────────── -->
-<div class="cb-page" id="cb-main">
+    <!-- ── MAIN PAGE ───────────────────────────────────────────────────────── -->
+    <div class="cb-page" id="cb-main">
 
-    <!-- Date navigation header -->
-    <div class="cb-header">
-        <div class="cb-date-nav">
-            <a href="{{ url_for('cashbook.cashbook_page', date=(date_obj - timedelta_days).strftime('%Y-%m-%d')) }}"
-               class="cb-nav-arrow" id="prev-day" title="Previous Day">&#8592;</a>
-            <div>
-                <div class="cb-date-title" id="display-date">{{ display_date }}</div>
-                {% set today_str = today_date %}
-                {% if date_str == today_str %}
-                <div class="cb-today-badge">TODAY</div>
-                {% else %}
-                <div class="cb-date-sub">{{ date_str }}</div>
-                {% endif %}
+        <!-- Date navigation header -->
+        <div class="cb-header">
+            <div class="cb-date-nav">
+                <a href="{{ url_for('cashbook.cashbook_page', date=(date_obj - timedelta_days).strftime('%Y-%m-%d')) }}"
+                    class="cb-nav-arrow" id="prev-day" title="Previous Day">&#8592;</a>
+                <div>
+                    <div class="cb-date-title" id="display-date">{{ display_date }}</div>
+                    {% set today_str = today_date %}
+                    {% if date_str == today_str %}
+                    <div class="cb-today-badge">TODAY</div>
+                    {% else %}
+                    <div class="cb-date-sub">{{ date_str }}</div>
+                    {% endif %}
+                </div>
+                <a href="{{ url_for('cashbook.cashbook_page', date=(date_obj + timedelta_days).strftime('%Y-%m-%d')) }}"
+                    class="cb-nav-arrow" id="next-day" title="Next Day">&#8594;</a>
             </div>
-            <a href="{{ url_for('cashbook.cashbook_page', date=(date_obj + timedelta_days).strftime('%Y-%m-%d')) }}"
-               class="cb-nav-arrow" id="next-day" title="Next Day">&#8594;</a>
-        </div>
-        <div class="cb-header-meta">
-            Logged in as <strong class="cb-header-user">{{ current_user.username }}</strong>
-            &nbsp;·&nbsp;
-            <a href="{{ url_for('inventory.dashboard') }}" target="_blank" class="cb-back-link">⬅ Back to Dashboard</a>
-        </div>
-    </div>
-
-    <!-- ── SUMMARY CARDS ────────────────────────────────────────────── -->
-    <div class="cb-summary-row" id="summary-row">
-        <div class="cb-sum-card income-cash">
-            <div class="cb-sum-label">Cash In</div>
-            <div class="cb-sum-value" id="sum-gross-cash">₹{{ "{:,.2f}".format(totals.gross_cash) }}</div>
-            <div class="cb-sum-sub">Retail + Tally receipts</div>
-        </div>
-        <div class="cb-sum-card income-online">
-            <div class="cb-sum-label">Online In</div>
-            <div class="cb-sum-value" id="sum-gross-online">₹{{ "{:,.2f}".format(totals.gross_online) }}</div>
-            <div class="cb-sum-sub">Retail + Tally receipts</div>
-        </div>
-        <div class="cb-sum-card expense-card">
-            <div class="cb-sum-label">Expenses</div>
-            <div class="cb-sum-value" id="sum-expense-total">₹{{ "{:,.2f}".format(totals.expense_total) }}</div>
-            <div class="cb-sum-sub">Cash: ₹{{ "{:,.2f}".format(totals.expense_cash) }} · Online: ₹{{ "{:,.2f}".format(totals.expense_online) }}</div>
-        </div>
-        <div class="cb-sum-card net-cash">
-            <div class="cb-sum-label">Net Cash</div>
-            <div class="cb-sum-value" id="sum-net-cash">₹{{ "{:,.2f}".format(totals.net_cash) }}</div>
-            <div class="cb-sum-sub">After expenses</div>
-        </div>
-        <div class="cb-sum-card net-online">
-            <div class="cb-sum-label">Net Online</div>
-            <div class="cb-sum-value" id="sum-net-online">₹{{ "{:,.2f}".format(totals.net_online) }}</div>
-            <div class="cb-sum-sub">After expenses</div>
-        </div>
-        <div class="cb-sum-card net-total">
-            <div class="cb-sum-label">Net Total</div>
-            <div class="cb-sum-value" id="sum-net-total">₹{{ "{:,.2f}".format(totals.net_total) }}</div>
-            <div class="cb-sum-sub">Cash + Online net</div>
-        </div>
-    </div>
-
-    <!-- ── SECTION 1: RETAIL SALES ──────────────────────────────────── -->
-    <div class="cb-section" id="section-retail">
-        <div class="cb-section-header">
-            <div class="cb-section-title">
-                🛒 Retail Sales
-                <span class="cb-section-badge green" id="retail-count-badge">{{ retail_entries|length }} bills</span>
+            <div class="cb-header-meta">
+                Logged in as <strong class="cb-header-user">{{ current_user.username }}</strong>
+                &nbsp;·&nbsp;
+                <a href="{{ url_for('inventory.dashboard') }}" target="_blank" class="cb-back-link">⬅ Back to
+                    Dashboard</a>
             </div>
-            <div class="cb-section-hint">Cash/Online only · Credit excluded</div>
         </div>
-        <div class="table-responsive">
-            <table class="cb-table" id="retail-table">
-                <thead>
-                    <tr>
-                        <th class="cb-col-narrow">Bill#</th>
-                        <th class="cb-col-narrow">Time</th>
-                        <th>Client</th>
-                        <th>Items</th>
-                        <th class="text-end cb-col-amount">Cash ₹</th>
-                        <th class="text-end cb-col-amount">Online ₹</th>
-                    </tr>
-                </thead>
-                <tbody id="retail-tbody">
-                    {% if retail_entries %}
+
+        <!-- ── CASH DRAWER RECONCILIATION ───────────────────────────────── -->
+        <div class="cb-section cb-recon-card mb-4" id="section-reconciliation">
+            <div class="cb-section-header">
+                <div class="cb-section-title">
+                    💵 Cash Drawer Reconciliation
+                </div>
+                <div class="cb-section-hint">Traditional daily cash check & verification</div>
+            </div>
+            
+            <div class="cb-recon-container p-4">
+                <div class="row g-4 align-items-center">
+                    <!-- Left: 4 numeric input/displays -->
+                    <div class="col-lg-8 col-md-12">
+                        <div class="cb-recon-grid">
+                            <!-- 1. Opening Cash -->
+                            <div class="cb-recon-box">
+                                <label class="cb-recon-label" for="recon-opening">Opening Cash (A)</label>
+                                <div class="cb-recon-input-wrapper">
+                                    <span class="cb-currency-symbol">₹</span>
+                                    <input type="number" id="recon-opening" class="form-control cb-recon-input" 
+                                           value="{{ "{:.2f}".format(opening_cash) }}" min="0" step="0.01"
+                                           oninput="recalculateReconciliation()">
+                                </div>
+                                <span class="cb-recon-sub">Carried forward / Overridden</span>
+                            </div>
+
+                            <!-- 2. Net Cash Flow today -->
+                            <div class="cb-recon-box">
+                                <span class="cb-recon-label">Net Cash Activity (B)</span>
+                                <div class="cb-recon-display-val text-purple" id="recon-net-activity">
+                                    ₹{{ "{:,.2f}".format(totals.net_cash) }}
+                                </div>
+                                <span class="cb-recon-sub">Cash In - Cash Out</span>
+                            </div>
+
+                            <!-- 3. Expected Closing Cash -->
+                            <div class="cb-recon-box">
+                                <span class="cb-recon-label">Expected Closing (A + B)</span>
+                                <div class="cb-recon-display-val text-amber" id="recon-expected-closing">
+                                    ₹{{ "{:,.2f}".format(opening_cash + totals.net_cash) }}
+                                </div>
+                                <span class="cb-recon-sub">Expected in drawer</span>
+                            </div>
+
+                            <!-- 4. Actual Closing Cash -->
+                            <div class="cb-recon-box">
+                                <label class="cb-recon-label" for="recon-closing">Actual Closing Cash</label>
+                                <div class="cb-recon-input-wrapper">
+                                    <span class="cb-currency-symbol">₹</span>
+                                    <input type="number" id="recon-closing" class="form-control cb-recon-input highlight-border" 
+                                           value="{{ "{:.2f}".format(closing_cash) }}" min="0" step="0.01"
+                                           oninput="recalculateReconciliation()">
+                                </div>
+                                <span class="cb-recon-sub">Physical counted cash</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Large reconciliation status and save -->
+                    <div class="col-lg-4 col-md-12">
+                        <div id="recon-diff-banner" class="cb-diff-banner balanced">
+                            <div class="cb-diff-title" id="diff-title">Balanced</div>
+                            <div class="cb-diff-val" id="diff-value">₹0.00</div>
+                            <div class="cb-diff-desc" id="diff-desc">Physical cash matches exactly!</div>
+                        </div>
+                        
+                        <button class="btn btn-success w-100 cb-save-balance-btn mt-3" id="save-balance-btn" onclick="saveDailyBalance()">
+                            💾 Save Daily Balances
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── SUMMARY CARDS ────────────────────────────────────────────── -->
+        <div class="cb-summary-row" id="summary-row">
+            <div class="cb-sum-card income-cash">
+                <div class="cb-sum-label">Cash In</div>
+                <div class="cb-sum-value" id="sum-gross-cash">₹{{ "{:,.2f}".format(totals.gross_cash) }}</div>
+                <div class="cb-sum-sub">Retail + Tally receipts</div>
+            </div>
+            <div class="cb-sum-card income-online">
+                <div class="cb-sum-label">Online In</div>
+                <div class="cb-sum-value" id="sum-gross-online">₹{{ "{:,.2f}".format(totals.gross_online) }}</div>
+                <div class="cb-sum-sub">Retail + Tally receipts</div>
+            </div>
+            <div class="cb-sum-card expense-card">
+                <div class="cb-sum-label">Expenses</div>
+                <div class="cb-sum-value" id="sum-expense-total">₹{{ "{:,.2f}".format(totals.expense_total) }}</div>
+                <div class="cb-sum-sub">Cash: ₹{{ "{:,.2f}".format(totals.expense_cash) }} · Online: ₹{{
+                    "{:,.2f}".format(totals.expense_online) }}</div>
+            </div>
+            <div class="cb-sum-card net-cash">
+                <div class="cb-sum-label">Net Cash</div>
+                <div class="cb-sum-value" id="sum-net-cash">₹{{ "{:,.2f}".format(totals.net_cash) }}</div>
+                <div class="cb-sum-sub">After expenses</div>
+            </div>
+            <div class="cb-sum-card net-online">
+                <div class="cb-sum-label">Net Online</div>
+                <div class="cb-sum-value" id="sum-net-online">₹{{ "{:,.2f}".format(totals.net_online) }}</div>
+                <div class="cb-sum-sub">After expenses</div>
+            </div>
+            <div class="cb-sum-card net-total">
+                <div class="cb-sum-label">Net Total</div>
+                <div class="cb-sum-value" id="sum-net-total">₹{{ "{:,.2f}".format(totals.net_total) }}</div>
+                <div class="cb-sum-sub">Cash + Online net</div>
+            </div>
+        </div>
+
+        <!-- ── SECTION 1: RETAIL SALES ──────────────────────────────────── -->
+        <div class="cb-section" id="section-retail">
+            <div class="cb-section-header">
+                <div class="cb-section-title">
+                    🛒 Retail Sales
+                    <span class="cb-section-badge green" id="retail-count-badge">{{ retail_entries|length }}
+                        bills</span>
+                </div>
+                <div class="cb-section-hint">Cash/Online only · Credit excluded</div>
+            </div>
+            <div class="table-responsive">
+                <table class="cb-table" id="retail-table">
+                    <thead>
+                        <tr>
+                            <th class="cb-col-narrow">Bill#</th>
+                            <th class="cb-col-narrow">Time</th>
+                            <th>Client</th>
+                            <th>Items</th>
+                            <th class="text-end cb-col-amount">Cash ₹</th>
+                            <th class="text-end cb-col-amount">Online ₹</th>
+                        </tr>
+                    </thead>
+                    <tbody id="retail-tbody">
+                        {% if retail_entries %}
                         {% for e in retail_entries %}
                         <tr>
                             <td class="td-time">#{{ e.id }}</td>
                             <td class="td-time">{{ e.time }}</td>
                             <td class="fw-semibold">{{ e.client }}</td>
                             <td class="td-desc cb-item-desc">{{ e.description }}</td>
-                            <td class="td-amount amount-green">{% if e.cash_in > 0 %}₹{{ "{:,.2f}".format(e.cash_in) }}{% else %}—{% endif %}</td>
-                            <td class="td-amount amount-blue">{% if e.online_in > 0 %}₹{{ "{:,.2f}".format(e.online_in) }}{% else %}—{% endif %}</td>
+                            <td class="td-amount amount-green">{% if e.cash_in > 0 %}₹{{ "{:,.2f}".format(e.cash_in)
+                                }}{% else %}—{% endif %}</td>
+                            <td class="td-amount amount-blue">{% if e.online_in > 0 %}₹{{ "{:,.2f}".format(e.online_in)
+                                }}{% else %}—{% endif %}</td>
                         </tr>
                         {% endfor %}
-                    {% else %}
-                        <tr class="cb-empty-row"><td colspan="6">No retail cash/online sales recorded for this day.</td></tr>
-                    {% endif %}
-                </tbody>
-            </table>
+                        {% else %}
+                        <tr class="cb-empty-row">
+                            <td colspan="6">No retail cash/online sales recorded for this day.</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="cb-section-footer" id="retail-footer">
+                <div class="cb-foot-item">
+                    <span class="cb-foot-label">Cash:</span>
+                    <span class="cb-foot-value green" id="retail-total-cash">₹{{ "{:,.2f}".format(totals.retail_cash)
+                        }}</span>
+                </div>
+                <div class="cb-foot-item">
+                    <span class="cb-foot-label">Online:</span>
+                    <span class="cb-foot-value blue" id="retail-total-online">₹{{ "{:,.2f}".format(totals.retail_online)
+                        }}</span>
+                </div>
+                <div class="cb-foot-item">
+                    <span class="cb-foot-label">Total:</span>
+                    <span class="cb-foot-value" id="retail-total">₹{{ "{:,.2f}".format(totals.retail_total) }}</span>
+                </div>
+            </div>
         </div>
-        <div class="cb-section-footer" id="retail-footer">
-            <div class="cb-foot-item">
-                <span class="cb-foot-label">Cash:</span>
-                <span class="cb-foot-value green" id="retail-total-cash">₹{{ "{:,.2f}".format(totals.retail_cash) }}</span>
-            </div>
-            <div class="cb-foot-item">
-                <span class="cb-foot-label">Online:</span>
-                <span class="cb-foot-value blue" id="retail-total-online">₹{{ "{:,.2f}".format(totals.retail_online) }}</span>
-            </div>
-            <div class="cb-foot-item">
-                <span class="cb-foot-label">Total:</span>
-                <span class="cb-foot-value" id="retail-total">₹{{ "{:,.2f}".format(totals.retail_total) }}</span>
-            </div>
-        </div>
-    </div>
 
-    <!-- ── SECTION 2: TALLY / GST INVOICE SALES ─────────────────────── -->
-    <div class="cb-section" id="section-tally">
-        <div class="cb-section-header">
-            <div class="cb-section-title">
-                🧾 Tally / GST Invoices
-                <span class="cb-section-badge blue" id="tally-count-badge">{{ tally_entries|length }} invoices</span>
+        <!-- ── SECTION 2: TALLY / GST INVOICE SALES ─────────────────────── -->
+        <div class="cb-section" id="section-tally">
+            <div class="cb-section-header">
+                <div class="cb-section-title">
+                    🧾 Tally / GST Invoices
+                    <span class="cb-section-badge blue" id="tally-count-badge">{{ tally_entries|length }}
+                        invoices</span>
+                </div>
+                <div class="cb-section-hint">Cash/Online only · Credit excluded</div>
             </div>
-            <div class="cb-section-hint">Cash/Online only · Credit excluded</div>
-        </div>
-        <div class="table-responsive">
-            <table class="cb-table" id="tally-table">
-                <thead>
-                    <tr>
-                        <th class="cb-col-invoice">Invoice</th>
-                        <th class="cb-col-narrow">Time</th>
-                        <th>Client</th>
-                        <th>Items</th>
-                        <th class="text-end cb-col-amount">Cash ₹</th>
-                        <th class="text-end cb-col-amount">Online ₹</th>
-                    </tr>
-                </thead>
-                <tbody id="tally-tbody">
-                    {% if tally_entries %}
+            <div class="table-responsive">
+                <table class="cb-table" id="tally-table">
+                    <thead>
+                        <tr>
+                            <th class="cb-col-invoice">Invoice</th>
+                            <th class="cb-col-narrow">Time</th>
+                            <th>Client</th>
+                            <th>Items</th>
+                            <th class="text-end cb-col-amount">Cash ₹</th>
+                            <th class="text-end cb-col-amount">Online ₹</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tally-tbody">
+                        {% if tally_entries %}
                         {% for e in tally_entries %}
                         <tr>
                             <td class="td-time">{{ e.invoice }}</td>
                             <td class="td-time">{{ e.time }}</td>
                             <td class="fw-semibold">{{ e.client }}</td>
                             <td class="td-desc cb-item-desc">{{ e.description }}</td>
-                            <td class="td-amount amount-green">{% if e.cash_in > 0 %}₹{{ "{:,.2f}".format(e.cash_in) }}{% else %}—{% endif %}</td>
-                            <td class="td-amount amount-blue">{% if e.online_in > 0 %}₹{{ "{:,.2f}".format(e.online_in) }}{% else %}—{% endif %}</td>
+                            <td class="td-amount amount-green">{% if e.cash_in > 0 %}₹{{ "{:,.2f}".format(e.cash_in)
+                                }}{% else %}—{% endif %}</td>
+                            <td class="td-amount amount-blue">{% if e.online_in > 0 %}₹{{ "{:,.2f}".format(e.online_in)
+                                }}{% else %}—{% endif %}</td>
                         </tr>
                         {% endfor %}
-                    {% else %}
-                        <tr class="cb-empty-row"><td colspan="6">No tally cash/online invoices recorded for this day.</td></tr>
-                    {% endif %}
-                </tbody>
-            </table>
+                        {% else %}
+                        <tr class="cb-empty-row">
+                            <td colspan="6">No tally cash/online invoices recorded for this day.</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="cb-section-footer" id="tally-footer">
+                <div class="cb-foot-item">
+                    <span class="cb-foot-label">Cash:</span>
+                    <span class="cb-foot-value green" id="tally-total-cash">₹{{ "{:,.2f}".format(totals.tally_cash)
+                        }}</span>
+                </div>
+                <div class="cb-foot-item">
+                    <span class="cb-foot-label">Online:</span>
+                    <span class="cb-foot-value blue" id="tally-total-online">₹{{ "{:,.2f}".format(totals.tally_online)
+                        }}</span>
+                </div>
+                <div class="cb-foot-item">
+                    <span class="cb-foot-label">Total:</span>
+                    <span class="cb-foot-value" id="tally-total">₹{{ "{:,.2f}".format(totals.tally_total) }}</span>
+                </div>
+            </div>
         </div>
-        <div class="cb-section-footer" id="tally-footer">
-            <div class="cb-foot-item">
-                <span class="cb-foot-label">Cash:</span>
-                <span class="cb-foot-value green" id="tally-total-cash">₹{{ "{:,.2f}".format(totals.tally_cash) }}</span>
-            </div>
-            <div class="cb-foot-item">
-                <span class="cb-foot-label">Online:</span>
-                <span class="cb-foot-value blue" id="tally-total-online">₹{{ "{:,.2f}".format(totals.tally_online) }}</span>
-            </div>
-            <div class="cb-foot-item">
-                <span class="cb-foot-label">Total:</span>
-                <span class="cb-foot-value" id="tally-total">₹{{ "{:,.2f}".format(totals.tally_total) }}</span>
-            </div>
-        </div>
-    </div>
 
-    <!-- ── SECTION 3: EXPENSES / DEBITS ─────────────────────────────── -->
-    <div class="cb-section" id="section-expenses">
-        <div class="cb-section-header">
-            <div class="cb-section-title">
-                💸 Manual Entries (Expenses & Incomes)
-                <span class="cb-section-badge red" id="expense-count-badge">{{ expense_entries|length }} entries</span>
+        <!-- ── SECTION 3: EXPENSES / DEBITS ─────────────────────────────── -->
+        <div class="cb-section" id="section-expenses">
+            <div class="cb-section-header">
+                <div class="cb-section-title">
+                    💸 Manual Entries (Expenses & Incomes)
+                    <span class="cb-section-badge red" id="expense-count-badge">{{ expense_entries|length }}
+                        entries</span>
+                </div>
+                <div class="cb-section-hint">Tea, freight, petty cash, manual deposits, etc.</div>
             </div>
-            <div class="cb-section-hint">Tea, freight, petty cash, manual deposits, etc.</div>
-        </div>
-        <div class="table-responsive">
-            <table class="cb-table" id="expense-table">
-                <thead>
-                    <tr>
-                        <th class="cb-col-narrow">Time</th>
-                        <th>Description</th>
-                        <th class="cb-col-mode">Mode</th>
-                        <th class="cb-col-mode">Type</th>
-                        <th class="text-end cb-col-amount">Amount ₹</th>
-                        <th class="cb-col-action"></th>
-                    </tr>
-                </thead>
-                <tbody id="expense-tbody">
-                    {% if expense_entries %}
+            <div class="table-responsive">
+                <table class="cb-table" id="expense-table">
+                    <thead>
+                        <tr>
+                            <th class="cb-col-narrow">Time</th>
+                            <th>Description</th>
+                            <th class="cb-col-mode">Mode</th>
+                            <th class="cb-col-mode">Type</th>
+                            <th class="text-end cb-col-amount">Amount ₹</th>
+                            <th class="cb-col-action"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="expense-tbody">
+                        {% if expense_entries %}
                         {% for e in expense_entries %}
                         <tr id="exp-row-{{ e.id }}">
                             <td class="td-time">{{ e.time }}</td>
                             <td class="fw-semibold">{{ e.description }}</td>
                             <td>
-                                <span class="cb-type-pill {% if e.mode == 'Cash' %}cb-pill-retail{% else %}cb-pill-tally{% endif %}">
+                                <span
+                                    class="cb-type-pill {% if e.mode == 'Cash' %}cb-pill-retail{% else %}cb-pill-tally{% endif %}">
                                     {{ e.mode }}
                                 </span>
                             </td>
                             <td>
-                                <span class="cb-type-pill {% if e.type == 'Income' %}cb-pill-retail{% else %}cb-pill-tally{% endif %}">
+                                <span
+                                    class="cb-type-pill {% if e.type == 'Income' %}cb-pill-retail{% else %}cb-pill-tally{% endif %}">
                                     {{ e.type }}
                                 </span>
                             </td>
-                            <td class="td-amount {% if e.type == 'Income' %}amount-green{% else %}amount-red{% endif %}">₹{{ "{:,.2f}".format(e.amount) }}</td>
+                            <td
+                                class="td-amount {% if e.type == 'Income' %}amount-green{% else %}amount-red{% endif %}">
+                                ₹{{ "{:,.2f}".format(e.amount) }}</td>
                             <td class="td-actions">
                                 {% if current_user.role == 'admin' %}
-                                <button class="cb-del-btn" onclick="deleteExpense({{ e.id }})" title="Delete entry">✕</button>
+                                <button class="cb-del-btn" onclick="deleteExpense({{ e.id }})"
+                                    title="Delete entry">✕</button>
                                 {% endif %}
                             </td>
                         </tr>
                         {% endfor %}
-                    {% else %}
-                        <tr class="cb-empty-row" id="expense-empty-row"><td colspan="5">No expenses recorded for this day.</td></tr>
-                    {% endif %}
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Footer totals for expenses -->
-        <div class="cb-section-footer" id="expense-footer">
-            <div class="cb-foot-item">
-                <span class="cb-foot-label">Total Expense:</span>
-                <span class="cb-foot-value red" id="expense-total">₹{{ "{:,.2f}".format(totals.expense_total) }}</span>
+                        {% else %}
+                        <tr class="cb-empty-row" id="expense-empty-row">
+                            <td colspan="5">No expenses recorded for this day.</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
             </div>
-            <div class="cb-foot-item">
-                <span class="cb-foot-label">Total Income:</span>
-                <span class="cb-foot-value green" id="income-total">₹{{ "{:,.2f}".format(totals.income_total) }}</span>
+
+            <!-- Footer totals for expenses -->
+            <div class="cb-section-footer" id="expense-footer">
+                <div class="cb-foot-item">
+                    <span class="cb-foot-label">Total Expense:</span>
+                    <span class="cb-foot-value red" id="expense-total">₹{{ "{:,.2f}".format(totals.expense_total)
+                        }}</span>
+                </div>
+                <div class="cb-foot-item">
+                    <span class="cb-foot-label">Total Income:</span>
+                    <span class="cb-foot-value green" id="income-total">₹{{ "{:,.2f}".format(totals.income_total)
+                        }}</span>
+                </div>
+            </div>
+
+            <!-- Add expense inline form -->
+            <div class="cb-add-expense-bar" id="add-expense-bar">
+                <input class="form-control cb-input-desc" type="text" id="exp-desc"
+                    placeholder="Expense description (e.g. Tea, Freight, Loading)" autocomplete="off">
+                <input class="form-control cb-input-amt" type="number" id="exp-amt" placeholder="Amount (₹)" min="0.01"
+                    step="0.01" autocomplete="off">
+                <select class="form-select cb-mode-select" id="exp-type">
+                    <option value="Expense">Expense</option>
+                    <option value="Income">Income / Deposit</option>
+                </select>
+                <select class="form-select cb-mode-select" id="exp-mode">
+                    <option value="Cash">Cash</option>
+                    <option value="Online">Online</option>
+                </select>
+                <button class="btn btn-primary cb-add-btn" id="add-exp-btn" onclick="addExpense()">+ Add</button>
             </div>
         </div>
 
-        <!-- Add expense inline form -->
-        <div class="cb-add-expense-bar" id="add-expense-bar">
-            <input class="form-control cb-input-desc" type="text" id="exp-desc"
-                   placeholder="Expense description (e.g. Tea, Freight, Loading)" autocomplete="off">
-            <input class="form-control cb-input-amt" type="number" id="exp-amt"
-                   placeholder="Amount (₹)" min="0.01" step="0.01" autocomplete="off">
-            <select class="form-select cb-mode-select" id="exp-type">
-                <option value="Expense">Expense</option>
-                <option value="Income">Income / Deposit</option>
-            </select>
-            <select class="form-select cb-mode-select" id="exp-mode">
-                <option value="Cash">Cash</option>
-                <option value="Online">Online</option>
-            </select>
-            <button class="btn btn-primary cb-add-btn" id="add-exp-btn" onclick="addExpense()">+ Add</button>
+        <!-- ── GRAND TOTAL STRIP ─────────────────────────────────────────── -->
+        <div class="cb-grand-total" id="grand-total-strip">
+            <div>
+                <div class="gt-label">Net Cash Balance</div>
+                <div class="gt-value green" id="gt-net-cash">₹{{ "{:,.2f}".format(totals.net_cash) }}</div>
+            </div>
+            <div>
+                <div class="gt-label">Net Online Balance</div>
+                <div class="gt-value blue" id="gt-net-online">₹{{ "{:,.2f}".format(totals.net_online) }}</div>
+            </div>
+            <div>
+                <div class="gt-label">Total In Hand (Cash + Online)</div>
+                <div class="gt-value amber gt-value-xl" id="gt-net-total">₹{{ "{:,.2f}".format(totals.net_total) }}
+                </div>
+            </div>
+            <div>
+                <button class="cb-print-btn" onclick="window.print()">🖨️ Print / Save PDF</button>
+            </div>
         </div>
-    </div>
 
-    <!-- ── GRAND TOTAL STRIP ─────────────────────────────────────────── -->
-    <div class="cb-grand-total" id="grand-total-strip">
-        <div>
-            <div class="gt-label">Net Cash Balance</div>
-            <div class="gt-value green" id="gt-net-cash">₹{{ "{:,.2f}".format(totals.net_cash) }}</div>
-        </div>
-        <div>
-            <div class="gt-label">Net Online Balance</div>
-            <div class="gt-value blue" id="gt-net-online">₹{{ "{:,.2f}".format(totals.net_online) }}</div>
-        </div>
-        <div>
-            <div class="gt-label">Total In Hand (Cash + Online)</div>
-            <div class="gt-value amber gt-value-xl" id="gt-net-total">₹{{ "{:,.2f}".format(totals.net_total) }}</div>
-        </div>
-        <div>
-            <button class="cb-print-btn" onclick="window.print()">🖨️ Print / Save PDF</button>
-        </div>
-    </div>
+    </div><!-- /cb-page -->
 
-</div><!-- /cb-page -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        /* ── Helpers ────────────────────────────────────────────────────── */
+        const TODAY_STR = '{{ date_str }}';
+        const IS_ADMIN = {{ 'true' if current_user.role == 'admin' else 'false' }};
+        let netCashActivity = {{ totals.net_cash }};
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-/* ── Helpers ────────────────────────────────────────────────────── */
-const TODAY_STR = '{{ date_str }}';
-const IS_ADMIN  = {{ 'true' if current_user.role == 'admin' else 'false' }};
+        function fmt(n) {
+            const val = Math.abs(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            return (n < 0 ? '-' : '') + '₹' + val;
+        }
 
-function fmt(n) {
-    return '₹' + Number(n).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
-}
+        function recalculateReconciliation() {
+            const openingInput = document.getElementById('recon-opening');
+            const closingInput = document.getElementById('recon-closing');
 
-function jumpToDate(val) {
-    if (val) window.location.href = '/cashbook?date=' + val;
-}
+            if (!openingInput || !closingInput) return;
 
-/* ── Previous / Next day links ──────────────────────────────────── */
-(function() {
-    const d = new Date('{{ date_str }}T00:00:00');
-    const prev = new Date(d); prev.setDate(prev.getDate() - 1);
-    const next = new Date(d); next.setDate(next.getDate() + 1);
-    const fmt_d = dt => dt.toISOString().slice(0, 10);
-    document.getElementById('prev-day').href = '/cashbook?date=' + fmt_d(prev);
-    document.getElementById('next-day').href = '/cashbook?date=' + fmt_d(next);
-})();
+            const openingVal = parseFloat(openingInput.value) || 0.0;
+            const closingVal = parseFloat(closingInput.value) || 0.0;
 
-/* ── Add Expense ────────────────────────────────────────────────── */
-async function addExpense() {
-    const desc = document.getElementById('exp-desc').value.trim();
-    const amt  = parseFloat(document.getElementById('exp-amt').value);
-    const mode = document.getElementById('exp-mode').value;
-    const type = document.getElementById('exp-type').value;
-    const btn  = document.getElementById('add-exp-btn');
+            const expectedVal = openingVal + netCashActivity;
+            const difference = closingVal - expectedVal;
 
-    if (!desc || !(amt > 0)) {
-        alert('Please enter a description and a valid amount.');
-        return;
-    }
+            // Update Expected Closing Cash display
+            document.getElementById('recon-expected-closing').textContent = fmt(expectedVal);
 
-    btn.disabled = true;
-    btn.textContent = 'Saving…';
+            // Update Reconciliation Difference banner
+            const banner = document.getElementById('recon-diff-banner');
+            const title = document.getElementById('diff-title');
+            const value = document.getElementById('diff-value');
+            const desc = document.getElementById('diff-desc');
 
-    try {
-        const res = await fetch('/cashbook/add_expense', {
-            method : 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body   : JSON.stringify({ date: TODAY_STR, description: desc, amount: amt, mode: mode, type: type })
-        });
-        const data = await res.json();
-        if (!res.ok || data.error) throw new Error(data.error || 'Server error');
+            if (!banner) return;
 
-        // Append row to table
-        const tbody = document.getElementById('expense-tbody');
-        const empty = document.getElementById('expense-empty-row');
-        if (empty) empty.remove();
+            // Reset class
+            banner.className = 'cb-diff-banner';
 
-        const now = new Date();
-        const timeStr = now.toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit', hour12:true}).toUpperCase();
+            if (Math.abs(difference) < 0.01) {
+                banner.classList.add('balanced');
+                title.textContent = 'Balanced';
+                value.textContent = fmt(0.00);
+                desc.textContent = 'Physical cash matches exactly!';
+            } else if (difference > 0) {
+                banner.classList.add('overcash');
+                title.textContent = 'Overcash';
+                value.textContent = '+' + fmt(difference);
+                desc.textContent = 'More physical cash than expected!';
+            } else {
+                banner.classList.add('undercash');
+                title.textContent = 'Undercash';
+                value.textContent = fmt(difference);
+                desc.textContent = 'Less physical cash than expected!';
+            }
+        }
 
-        const row = document.createElement('tr');
-        row.id = 'exp-row-' + data.id;
-        row.innerHTML = `
+        async function saveDailyBalance() {
+            const openingVal = parseFloat(document.getElementById('recon-opening').value) || 0.0;
+            const closingVal = parseFloat(document.getElementById('recon-closing').value) || 0.0;
+            const btn = document.getElementById('save-balance-btn');
+
+            if (!btn) return;
+
+            btn.disabled = true;
+            btn.innerHTML = 'Saving Daily Balances…';
+
+            try {
+                const res = await fetch('/cashbook/save_daily_balance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        date: TODAY_STR,
+                        opening_cash: openingVal,
+                        closing_cash: closingVal
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok || data.error) throw new Error(data.error || 'Failed to save daily balance.');
+
+                // Visual confirmation
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-secondary');
+                btn.innerHTML = '✅ Balances Saved Successfully!';
+                
+                setTimeout(() => {
+                    btn.classList.remove('btn-secondary');
+                    btn.classList.add('btn-success');
+                    btn.innerHTML = '💾 Save Daily Balances';
+                    btn.disabled = false;
+                }, 2000);
+
+            } catch (err) {
+                alert('Error: ' + err.message);
+                btn.disabled = false;
+                btn.innerHTML = '💾 Save Daily Balances';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', recalculateReconciliation);
+
+        function jumpToDate(val) {
+            if (val) window.location.href = '/cashbook?date=' + val;
+        }
+
+        /* ── Previous / Next day links ──────────────────────────────────── */
+        (function () {
+            const d = new Date('{{ date_str }}T00:00:00');
+            const prev = new Date(d); prev.setDate(prev.getDate() - 1);
+            const next = new Date(d); next.setDate(next.getDate() + 1);
+            const fmt_d = dt => dt.toISOString().slice(0, 10);
+            document.getElementById('prev-day').href = '/cashbook?date=' + fmt_d(prev);
+            document.getElementById('next-day').href = '/cashbook?date=' + fmt_d(next);
+        })();
+
+        /* ── Add Expense ────────────────────────────────────────────────── */
+        async function addExpense() {
+            const desc = document.getElementById('exp-desc').value.trim();
+            const amt = parseFloat(document.getElementById('exp-amt').value);
+            const mode = document.getElementById('exp-mode').value;
+            const type = document.getElementById('exp-type').value;
+            const btn = document.getElementById('add-exp-btn');
+
+            if (!desc || !(amt > 0)) {
+                alert('Please enter a description and a valid amount.');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Saving…';
+
+            try {
+                const res = await fetch('/cashbook/add_expense', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date: TODAY_STR, description: desc, amount: amt, mode: mode, type: type })
+                });
+                const data = await res.json();
+                if (!res.ok || data.error) throw new Error(data.error || 'Server error');
+
+                // Append row to table
+                const tbody = document.getElementById('expense-tbody');
+                const empty = document.getElementById('expense-empty-row');
+                if (empty) empty.remove();
+
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }).toUpperCase();
+
+                const row = document.createElement('tr');
+                row.id = 'exp-row-' + data.id;
+                row.innerHTML = `
             <td class="td-time">${timeStr}</td>
             <td class="fw-semibold">${escHtml(desc)}</td>
             <td><span class="cb-type-pill ${mode === 'Cash' ? 'cb-pill-retail' : 'cb-pill-tally'}">${mode}</span></td>
@@ -367,94 +559,103 @@ async function addExpense() {
             <td class="td-actions">
                 ${IS_ADMIN ? `<button class="cb-del-btn" onclick="deleteExpense(${data.id})" title="Delete">✕</button>` : ''}
             </td>`;
-        tbody.appendChild(row);
+                tbody.appendChild(row);
 
-        // Clear form
-        document.getElementById('exp-desc').value = '';
-        document.getElementById('exp-amt').value  = '';
+                // Clear form
+                document.getElementById('exp-desc').value = '';
+                document.getElementById('exp-amt').value = '';
 
-        // Refresh totals from server
-        await refreshTotals();
+                // Refresh totals from server
+                await refreshTotals();
 
-    } catch (err) {
-        alert('Error: ' + err.message);
-    } finally {
-        btn.disabled = false;
-        btn.textContent = '+ Add';
-    }
-}
-
-/* ── Delete Expense ─────────────────────────────────────────────── */
-async function deleteExpense(id) {
-    if (!confirm('Delete this expense entry? This cannot be undone.')) return;
-
-    try {
-        const res = await fetch('/cashbook/delete_expense/' + id, { method: 'POST' });
-        const data = await res.json();
-        if (!res.ok || data.error) throw new Error(data.error || 'Failed to delete');
-
-        const row = document.getElementById('exp-row-' + id);
-        if (row) row.remove();
-
-        // Show empty state if tbody is now empty
-        const tbody = document.getElementById('expense-tbody');
-        if (!tbody.querySelector('tr:not(.cb-empty-row)')) {
-            const empty = document.createElement('tr');
-            empty.id = 'expense-empty-row';
-            empty.className = 'cb-empty-row';
-            empty.innerHTML = '<td colspan="5">No expenses recorded for this day.</td>';
-            tbody.appendChild(empty);
+            } catch (err) {
+                alert('Error: ' + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '+ Add';
+            }
         }
 
-        await refreshTotals();
-    } catch (err) {
-        alert('Error: ' + err.message);
-    }
-}
+        /* ── Delete Expense ─────────────────────────────────────────────── */
+        async function deleteExpense(id) {
+            if (!confirm('Delete this expense entry? This cannot be undone.')) return;
 
-/* ── Refresh totals after add/delete ────────────────────────────── */
-async function refreshTotals() {
-    try {
-        const res  = await fetch('/api/cashbook_data?date=' + TODAY_STR);
-        const data = await res.json();
-        const t    = data.totals;
+            try {
+                const res = await fetch('/cashbook/delete_expense/' + id, { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok || data.error) throw new Error(data.error || 'Failed to delete');
 
-        // Summary cards
-        document.getElementById('sum-gross-cash').textContent    = fmt(t.gross_cash);
-        document.getElementById('sum-gross-online').textContent  = fmt(t.gross_online);
-        document.getElementById('sum-expense-total').textContent = fmt(t.expense_total);
-        document.getElementById('sum-net-cash').textContent      = fmt(t.net_cash);
-        document.getElementById('sum-net-online').textContent    = fmt(t.net_online);
-        document.getElementById('sum-net-total').textContent     = fmt(t.net_total);
+                const row = document.getElementById('exp-row-' + id);
+                if (row) row.remove();
 
-        // Expense section footer
-        document.getElementById('expense-total').textContent        = fmt(t.expense_total);
-        const incTot = document.getElementById('income-total');
-        if (incTot) incTot.textContent = fmt(t.income_total);
-        document.getElementById('expense-count-badge').textContent  = data.expense_entries.length + ' entries';
+                // Show empty state if tbody is now empty
+                const tbody = document.getElementById('expense-tbody');
+                if (!tbody.querySelector('tr:not(.cb-empty-row)')) {
+                    const empty = document.createElement('tr');
+                    empty.id = 'expense-empty-row';
+                    empty.className = 'cb-empty-row';
+                    empty.innerHTML = '<td colspan="5">No expenses recorded for this day.</td>';
+                    tbody.appendChild(empty);
+                }
 
-        // Grand total
-        document.getElementById('gt-net-cash').textContent   = fmt(t.net_cash);
-        document.getElementById('gt-net-online').textContent = fmt(t.net_online);
-        document.getElementById('gt-net-total').textContent  = fmt(t.net_total);
+                await refreshTotals();
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
 
-    } catch (e) {
-        console.warn('Could not refresh totals:', e);
-    }
-}
+        /* ── Refresh totals after add/delete ────────────────────────────── */
+        async function refreshTotals() {
+            try {
+                const res = await fetch('/api/cashbook_data?date=' + TODAY_STR);
+                const data = await res.json();
+                const t = data.totals;
 
-/* ── Enter-key shortcut in expense form ─────────────────────────── */
-['exp-desc', 'exp-amt'].forEach(id => {
-    document.getElementById(id)?.addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); addExpense(); }
-    });
-});
+                // Update reconciliation variables
+                netCashActivity = t.net_cash;
+                const reconNetDisplay = document.getElementById('recon-net-activity');
+                if (reconNetDisplay) {
+                    reconNetDisplay.textContent = fmt(t.net_cash);
+                }
+                recalculateReconciliation();
 
-/* ── Escape HTML helper ─────────────────────────────────────────── */
-function escHtml(str) {
-    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-</script>
+                // Summary cards
+                document.getElementById('sum-gross-cash').textContent = fmt(t.gross_cash);
+                document.getElementById('sum-gross-online').textContent = fmt(t.gross_online);
+                document.getElementById('sum-expense-total').textContent = fmt(t.expense_total);
+                document.getElementById('sum-net-cash').textContent = fmt(t.net_cash);
+                document.getElementById('sum-net-online').textContent = fmt(t.net_online);
+                document.getElementById('sum-net-total').textContent = fmt(t.net_total);
+
+                // Expense section footer
+                document.getElementById('expense-total').textContent = fmt(t.expense_total);
+                const incTot = document.getElementById('income-total');
+                if (incTot) incTot.textContent = fmt(t.income_total);
+                document.getElementById('expense-count-badge').textContent = data.expense_entries.length + ' entries';
+
+                // Grand total
+                document.getElementById('gt-net-cash').textContent = fmt(t.net_cash);
+                document.getElementById('gt-net-online').textContent = fmt(t.net_online);
+                document.getElementById('gt-net-total').textContent = fmt(t.net_total);
+
+            } catch (e) {
+                console.warn('Could not refresh totals:', e);
+            }
+        }
+
+        /* ── Enter-key shortcut in expense form ─────────────────────────── */
+        ['exp-desc', 'exp-amt'].forEach(id => {
+            document.getElementById(id)?.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { e.preventDefault(); addExpense(); }
+            });
+        });
+
+        /* ── Escape HTML helper ─────────────────────────────────────────── */
+        function escHtml(str) {
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+    </script>
 
 </body>
+
 </html>

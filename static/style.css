@@ -1600,6 +1600,7 @@ tbody tr:hover {
     .cb-topbar .cb-date-input,
     .cb-add-expense-bar,
     .cb-del-btn,
+    .cb-save-balance-btn,
     .cb-print-btn { display: none !important; }
 }
 
@@ -1631,3 +1632,172 @@ tbody tr:hover {
 }
 
 
+
+
+/* ── Reconciliation Card & Container ── */
+.cb-recon-card {
+    background: #fff;
+    border-radius: 14px;
+    border: 1px solid #e8eaf0;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+    margin-bottom: 2rem;
+    overflow: hidden;
+}
+
+.cb-recon-container {
+    padding: 1.5rem;
+    background: #f8fafc;
+}
+
+/* Flexbox Grid of reconciliation metrics */
+.cb-recon-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1.25rem;
+}
+
+.cb-recon-box {
+    background: #fff;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: transform 0.2s, box-shadow 0.2s;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+}
+
+.cb-recon-box:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+.cb-recon-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #64748b;
+    margin-bottom: 6px;
+    display: block;
+}
+
+.cb-recon-display-val {
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: #0f172a;
+    line-height: 1.2;
+    margin: 4px 0;
+}
+
+.cb-recon-display-val.text-purple { color: #8b5cf6; }
+.cb-recon-display-val.text-amber { color: #d97706; }
+
+.cb-recon-sub {
+    font-size: 0.68rem;
+    color: #94a3b8;
+    margin-top: 4px;
+}
+
+/* Sleek inputs inside reconciliation boxes */
+.cb-recon-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.cb-currency-symbol {
+    position: absolute;
+    left: 8px;
+    color: #94a3b8;
+    font-weight: 600;
+    font-size: 0.95rem;
+    z-index: 5;
+}
+
+.cb-recon-input {
+    padding: 4px 8px 4px 22px !important;
+    font-size: 1.1rem !important;
+    font-weight: 700 !important;
+    color: #0f172a !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 6px !important;
+    height: 36px !important;
+    background: #f8fafc !important;
+    transition: border-color 0.15s, box-shadow 0.15s !important;
+}
+
+.cb-recon-input:focus {
+    border-color: #6366f1 !important;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
+    background: #fff !important;
+}
+
+.cb-recon-input.highlight-border {
+    border: 1.5px solid #3b82f6 !important;
+}
+
+/* ── Reconciliation Difference Banner (emerald/amber/rose gradient) ── */
+.cb-diff-banner {
+    border-radius: 12px;
+    padding: 1.25rem;
+    text-align: center;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 120px;
+    transition: background 0.3s, transform 0.3s;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+}
+
+.cb-diff-banner.balanced {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.2);
+}
+
+.cb-diff-banner.overcash {
+    background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+    box-shadow: 0 4px 15px rgba(37, 99, 235, 0.2);
+}
+
+.cb-diff-banner.undercash {
+    background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%);
+    box-shadow: 0 4px 15px rgba(225, 29, 72, 0.2);
+}
+
+.cb-diff-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.9;
+    margin-bottom: 2px;
+}
+
+.cb-diff-val {
+    font-size: 1.8rem;
+    font-weight: 900;
+    line-height: 1.1;
+    margin: 2px 0;
+}
+
+.cb-diff-desc {
+    font-size: 0.72rem;
+    opacity: 0.85;
+    margin-top: 4px;
+}
+
+.cb-save-balance-btn {
+    padding: 10px 20px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    border-radius: 8px;
+    transition: background 0.2s, transform 0.1s;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.06);
+}
+
+.cb-save-balance-btn:active {
+    transform: scale(0.98);
+}

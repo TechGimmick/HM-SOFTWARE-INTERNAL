@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash
 from flask_login import login_required, current_user
 from app.extensions import db
-from app.models import Sale, TallyBill, CashBookEntry
+from app.models import Sale, TallyBill, CashBookEntry, CashBookDailyBalance
 from datetime import datetime, timedelta
 from sqlalchemy import func
 
@@ -11,6 +11,26 @@ cashbook_bp = Blueprint('cashbook', __name__)
 def _ist_today():
     """Return today's date in IST (UTC+5:30)."""
     return (datetime.utcnow() + timedelta(hours=5, minutes=30)).date()
+
+
+def _get_reconciliation_data(date_obj):
+    """
+    Returns (opening_cash, closing_cash, is_saved) for the given date.
+    - If a daily balance record exists for this date, return it.
+    - Otherwise, find the closing cash of the most recent day before this date.
+      Default opening to that carried-forward value, and closing to 0.0.
+    """
+    record = CashBookDailyBalance.query.filter_by(date=date_obj).first()
+    if record:
+        return record.opening_cash, record.closing_cash, True
+    
+    # Check most recent prior balance
+    prev_record = CashBookDailyBalance.query.filter(
+        CashBookDailyBalance.date < date_obj
+    ).order_by(CashBookDailyBalance.date.desc()).first()
+    
+    opening = prev_record.closing_cash if prev_record else 0.0
+    return opening, 0.0, False
 
 
 def _get_cashbook_data(date_obj):
@@ -148,6 +168,7 @@ def cashbook_page():
     from datetime import timedelta as td
 
     retail, tally, expenses, totals = _get_cashbook_data(date_obj)
+    opening_cash, closing_cash, is_saved = _get_reconciliation_data(date_obj)
 
     return render_template(
         'cashbook.html',
@@ -160,6 +181,9 @@ def cashbook_page():
         tally_entries   = tally,
         expense_entries = expenses,
         totals          = totals,
+        opening_cash    = opening_cash,
+        closing_cash    = closing_cash,
+        is_saved        = is_saved
     )
 
 
@@ -174,12 +198,17 @@ def cashbook_data_api():
         return jsonify({'error': 'Invalid date'}), 400
 
     retail, tally, expenses, totals = _get_cashbook_data(date_obj)
+    opening_cash, closing_cash, is_saved = _get_reconciliation_data(date_obj)
+    
     return jsonify({
         'date'           : date_str,
         'retail_entries' : retail,
         'tally_entries'  : tally,
         'expense_entries': expenses,
         'totals'         : totals,
+        'opening_cash'   : opening_cash,
+        'closing_cash'   : closing_cash,
+        'is_saved'       : is_saved
     })
 
 
@@ -234,3 +263,40 @@ def delete_expense(entry_id):
     db.session.delete(entry)
     db.session.commit()
     return jsonify({'success': True})
+
+
+@cashbook_bp.route('/cashbook/save_daily_balance', methods=['POST'])
+@login_required
+def save_daily_balance():
+    """Save daily reconciliation balances (opening & closing cash)."""
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Access denied'}), 403
+
+    data = request.get_json()
+    date_str     = data.get('date')
+    opening_cash = float(data.get('opening_cash', 0.0))
+    closing_cash = float(data.get('closing_cash', 0.0))
+
+    if not date_str:
+        return jsonify({'error': 'Date is required.'}), 400
+
+    try:
+        date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'error': 'Invalid date'}), 400
+
+    record = CashBookDailyBalance.query.filter_by(date=date_obj).first()
+    if record:
+        record.opening_cash = opening_cash
+        record.closing_cash = closing_cash
+    else:
+        record = CashBookDailyBalance(
+            date=date_obj,
+            opening_cash=opening_cash,
+            closing_cash=closing_cash
+        )
+        db.session.add(record)
+    
+    db.session.commit()
+    return jsonify({'success': True})
+

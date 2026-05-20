@@ -193,3 +193,16 @@ class CashBookEntry(db.Model):
     created_by   = db.Column(db.String(50), nullable=True)
     created_at   = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
+
+
+class CashBookDailyBalance(db.Model):
+    """
+    Tracks daily reconciliation balances (opening cash, user-entered closing cash).
+    """
+    __tablename__ = 'cashbook_daily_balances'
+    id           = db.Column(db.Integer, primary_key=True)
+    date         = db.Column(db.Date,    nullable=False, unique=True, index=True)
+    opening_cash = db.Column(db.Float,   default=0.0, nullable=False)
+    closing_cash = db.Column(db.Float,   default=0.0, nullable=False)
+    created_at   = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    updated_at   = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
