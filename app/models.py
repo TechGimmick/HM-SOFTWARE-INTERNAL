@@ -61,6 +61,9 @@ class Sale(db.Model):
     # --- NEW COLUMN TO TRACK WALLET CREDIT ---
     wallet_credit = db.Column(db.Float, default=0.0)
     
+    # --- NEW COLUMN TO TRACK PAYMENT DATE & TIME ---
+    payment_date = db.Column(db.DateTime, nullable=True)
+    
     # --- WAREHOUSE ID ---
     warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouses.id'), nullable=True)
 
@@ -81,6 +84,16 @@ class SaleItem(db.Model):
     unit = db.Column(db.String(50))
     total_price = db.Column(db.Float)
     gst_rate = db.Column(db.Float, default=0.0) 
+
+class SalePayment(db.Model):
+    __tablename__ = 'sale_payments'
+    id = db.Column(db.Integer, primary_key=True)
+    sale_id = db.Column(db.Integer, db.ForeignKey('sales.id', ondelete='CASCADE'), nullable=False)
+    amount_cash = db.Column(db.Float, default=0.0, nullable=False)
+    amount_online = db.Column(db.Float, default=0.0, nullable=False)
+    payment_date = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
+
+    sale = db.relationship('Sale', backref=db.backref('payments', lazy=True, cascade="all, delete-orphan")) 
 
 class Purchase(db.Model):
     __tablename__ = 'purchases'

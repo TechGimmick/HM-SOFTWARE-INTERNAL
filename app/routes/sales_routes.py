@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session, make_response
 from flask_login import login_required, current_user
 from app.extensions import db
-from app.models import Sale, SaleItem, Product, Customer, Warehouse, WarehouseStock
+from app.models import Sale, SaleItem, Product, Customer, Warehouse, WarehouseStock, SalePayment
 from sqlalchemy import func, case
 import json
 from datetime import datetime, timedelta
@@ -339,6 +339,12 @@ def sales_log():
         
         items_list = [{'Category': i.category, 'Product Name': i.product_name, 'Qty Sold': i.qty_sold, 'Unit': i.unit, 'Total': i.total_price} for i in sale.items]
         
+        payment_date_ist_str = None
+        raw_payment_date_str = None
+        if sale.payment_date:
+            payment_date_ist_str = (sale.payment_date + timedelta(hours=5, minutes=30)).strftime('%d %b %Y %I:%M %p')
+            raw_payment_date_str = (sale.payment_date + timedelta(hours=5, minutes=30)).strftime('%Y-%m-%dT%H:%M')
+
         sales_by_date[date_key].append({
             'id': sale.id,
             'client_name': sale.client_name, 
@@ -349,9 +355,11 @@ def sales_log():
             'paid_amount': real_paid_amt, 
             'paid_cash': p_cash,
             'paid_online': p_online,
+            'payment_date': payment_date_ist_str,
+            'raw_payment_date': raw_payment_date_str,
             'items': items_list
         })
-        
+
     # Only fetch customers who appear in the current visible sales — not the full table
     visible_names = {s.client_name.split(' - ')[0].strip() for s in sales}
     wallet_map = {}
@@ -573,75 +581,171 @@ def update_status():
                 raw_cash = float(cash_input) if cash_input and cash_input.strip() else 0.0
                 raw_online = float(online_input) if online_input and online_input.strip() else 0.0
                 
-                total_received = raw_cash + raw_online
-                grand_total = sale.grand_total if sale.grand_total is not None else sum(i.total_price for i in sale.items)
-                
-                if sale.wallet_credit > 0:
-                    search_name = sale.client_name.split(' - ')[0].strip()
-                    cust = Customer.query.filter(func.lower(Customer.name) == func.lower(search_name)).first()
-                    if cust:
-                        cust.wallet_balance -= sale.wallet_credit
-                    sale.wallet_credit = 0.0
-
-                if total_received > grand_total:
-                    extra_amount = total_received - grand_total
-                    
-                    if overpayment_action == 'credit':
-                        if raw_cash >= grand_total:
-                            sale.paid_cash = grand_total
-                            sale.paid_online = 0
-                        else:
-                            sale.paid_cash = raw_cash
-                            sale.paid_online = grand_total - raw_cash
-                            
+                # If both are 0, fully revert all payments for this sale
+                if raw_cash == 0.0 and raw_online == 0.0:
+                    # Revert any wallet credit first
+                    if sale.wallet_credit and sale.wallet_credit > 0:
                         search_name = sale.client_name.split(' - ')[0].strip()
-                        customer = Customer.query.filter(func.lower(Customer.name) == func.lower(search_name)).first()
-
-                        if customer:
-                            current_bal = customer.wallet_balance or 0.0
-                            customer.wallet_balance = current_bal + extra_amount
-                            sale.wallet_credit = extra_amount
-                            db.session.add(customer)
-                            flash(f"Bill settled. ₹{extra_amount:.2f} added to {customer.name}'s wallet.", "success")
-                        else:
-                            flash(f"Bill settled. Warning: Customer '{search_name}' not found.", "warning")
-                    else: 
-                        if raw_cash >= grand_total:
-                            sale.paid_cash = grand_total
-                            sale.paid_online = 0
-                        else:
-                            sale.paid_cash = raw_cash
-                            sale.paid_online = grand_total - raw_cash
-                        flash(f"Bill settled. Change returned: ₹{extra_amount:.2f}", "info")
-
-                elif total_received < grand_total:
-                    if underpayment_action == 'settle':
-                        diff = grand_total - total_received
-                        sale.grand_total = total_received
-                        sale.paid_cash = raw_cash
-                        sale.paid_online = raw_online
-                        flash(f"Bill settled fully. Discount given: ₹{diff:.2f}", "success")
-                    else:
-                        sale.paid_cash = raw_cash
-                        sale.paid_online = raw_online
-                        flash("Partial payment recorded.", "warning")
-
+                        cust = Customer.query.filter(func.lower(Customer.name) == func.lower(search_name)).first()
+                        if cust:
+                            cust.wallet_balance -= sale.wallet_credit
+                        sale.wallet_credit = 0.0
+                    
+                    # Delete all associated SalePayment records
+                    SalePayment.query.filter_by(sale_id=sale.id).delete()
+                    
+                    sale.paid_cash = 0.0
+                    sale.paid_online = 0.0
+                    sale.payment_date = None
+                    sale.payment_status = "Payment Not Received"
+                    sale.payment_mode = None
+                    flash("Payment fully reverted / reset.", "info")
                 else:
-                    sale.paid_cash = raw_cash
-                    sale.paid_online = raw_online
-                    flash("Payment updated.", "success")
+                    # Parse the payment date from user input in IST, converting to UTC
+                    payment_date_str = request.form.get('payment_date')
+                    payment_date_utc = datetime.utcnow()
+                    if payment_date_str:
+                        try:
+                            if 'T' in payment_date_str:
+                                local_dt = datetime.strptime(payment_date_str, '%Y-%m-%dT%H:%M')
+                            else:
+                                local_dt = datetime.strptime(payment_date_str, '%Y-%m-%d %H:%M:%S')
+                            payment_date_utc = local_dt - timedelta(hours=5, minutes=30)
+                        except Exception:
+                            pass
 
-                final_total = sale.grand_total
-                final_paid = sale.paid_cash + sale.paid_online
-                
-                if final_paid >= final_total - 0.1: sale.payment_status = "Payment Received"
-                elif final_paid > 0: sale.payment_status = "Partial Payment"
-                else: sale.payment_status = "Payment Not Received"
-                
-                modes = []
-                if sale.paid_cash > 0: modes.append("Cash")
-                if sale.paid_online > 0: modes.append("Online")
-                sale.payment_mode = " + ".join(modes) if modes else None
+                    grand_total = sale.grand_total if sale.grand_total is not None else sum(i.total_price for i in sale.items)
+                    prev_paid = (sale.paid_cash or 0.0) + (sale.paid_online or 0.0)
+                    total_paid = prev_paid + raw_cash + raw_online
+
+                    # If they previously had a wallet credit and are recording a new payment, let's revert the wallet credit first.
+                    if sale.wallet_credit and sale.wallet_credit > 0:
+                        search_name = sale.client_name.split(' - ')[0].strip()
+                        cust = Customer.query.filter(func.lower(Customer.name) == func.lower(search_name)).first()
+                        if cust:
+                            cust.wallet_balance -= sale.wallet_credit
+                        sale.wallet_credit = 0.0
+
+                    if total_paid > grand_total:
+                        extra_amount = total_paid - grand_total
+                        
+                        # Calculate ledger applied amounts (cap total payment at grand_total)
+                        excess_to_reduce = extra_amount
+                        applied_cash = raw_cash
+                        applied_online = raw_online
+                        
+                        if excess_to_reduce > 0:
+                            if applied_online >= excess_to_reduce:
+                                applied_online -= excess_to_reduce
+                                excess_to_reduce = 0.0
+                            else:
+                                excess_to_reduce -= applied_online
+                                applied_online = 0.0
+                                
+                        if excess_to_reduce > 0:
+                            if applied_cash >= excess_to_reduce:
+                                applied_cash -= excess_to_reduce
+                                excess_to_reduce = 0.0
+                            else:
+                                applied_cash = 0.0
+
+                        # Record new payment in ledger
+                        new_pay = SalePayment(
+                            sale_id=sale.id,
+                            amount_cash=applied_cash,
+                            amount_online=applied_online,
+                            payment_date=payment_date_utc
+                        )
+                        db.session.add(new_pay)
+
+                        # Update sale
+                        sale.paid_cash = (sale.paid_cash or 0.0) + applied_cash
+                        sale.paid_online = (sale.paid_online or 0.0) + applied_online
+                        sale.payment_date = payment_date_utc
+
+                        if overpayment_action == 'credit':
+                            search_name = sale.client_name.split(' - ')[0].strip()
+                            customer = Customer.query.filter(func.lower(Customer.name) == func.lower(search_name)).first()
+                            if customer:
+                                current_bal = customer.wallet_balance or 0.0
+                                customer.wallet_balance = current_bal + extra_amount
+                                sale.wallet_credit = extra_amount
+                                db.session.add(customer)
+                                flash(f"Bill settled. ₹{extra_amount:.2f} added to {customer.name}'s wallet.", "success")
+                            else:
+                                flash(f"Bill settled. Warning: Customer '{search_name}' not found.", "warning")
+                        else:
+                            flash(f"Bill settled. Change returned: ₹{extra_amount:.2f}", "info")
+
+                    elif total_paid < grand_total:
+                        if underpayment_action == 'settle':
+                            diff = grand_total - total_paid
+                            
+                            # For underpayment settle, we reduce grand_total to total_paid
+                            sale.grand_total = total_paid
+                            
+                            # Record new payment in ledger
+                            new_pay = SalePayment(
+                                sale_id=sale.id,
+                                amount_cash=raw_cash,
+                                amount_online=raw_online,
+                                payment_date=payment_date_utc
+                            )
+                            db.session.add(new_pay)
+
+                            sale.paid_cash = (sale.paid_cash or 0.0) + raw_cash
+                            sale.paid_online = (sale.paid_online or 0.0) + raw_online
+                            sale.payment_date = payment_date_utc
+                            
+                            flash(f"Bill settled fully. Discount given: ₹{diff:.2f}", "success")
+                        else:
+                            # Record new payment in ledger
+                            new_pay = SalePayment(
+                                sale_id=sale.id,
+                                amount_cash=raw_cash,
+                                amount_online=raw_online,
+                                payment_date=payment_date_utc
+                            )
+                            db.session.add(new_pay)
+
+                            sale.paid_cash = (sale.paid_cash or 0.0) + raw_cash
+                            sale.paid_online = (sale.paid_online or 0.0) + raw_online
+                            sale.payment_date = payment_date_utc
+                            
+                            flash("Partial payment recorded.", "warning")
+                    else:
+                        # Exact payment
+                        new_pay = SalePayment(
+                            sale_id=sale.id,
+                            amount_cash=raw_cash,
+                            amount_online=raw_online,
+                            payment_date=payment_date_utc
+                        )
+                        db.session.add(new_pay)
+
+                        sale.paid_cash = (sale.paid_cash or 0.0) + raw_cash
+                        sale.paid_online = (sale.paid_online or 0.0) + raw_online
+                        sale.payment_date = payment_date_utc
+                        
+                        flash("Payment updated.", "success")
+
+                    # Calculate status and mode
+                    final_total = sale.grand_total
+                    final_paid = (sale.paid_cash or 0.0) + (sale.paid_online or 0.0)
+                    
+                    if final_paid >= final_total - 0.1:
+                        sale.payment_status = "Payment Received"
+                    elif final_paid > 0.01:
+                        sale.payment_status = "Partial Payment"
+                    else:
+                        sale.payment_status = "Payment Not Received"
+                    
+                    modes = []
+                    if (sale.paid_cash or 0.0) > 0:
+                        modes.append("Cash")
+                    if (sale.paid_online or 0.0) > 0:
+                        modes.append("Online")
+                    sale.payment_mode = " + ".join(modes) if modes else None
                 
             db.session.commit()
     except Exception as e:

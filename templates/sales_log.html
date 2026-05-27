@@ -124,7 +124,8 @@
 
             <details class="bill-item search-item" data-client="{{ bill_data.client_name|lower }}"
                 data-status="{{ bill_data.payment_status }}" data-cash="{{ bill_data.paid_cash }}"
-                data-online="{{ bill_data.paid_online }}">
+                data-online="{{ bill_data.paid_online }}"
+                data-payment-date="{{ bill_data.raw_payment_date or '' }}">
 
                 <summary class="bill-summary">
                     <div class="flex-between gap-15">
@@ -147,6 +148,12 @@
                             {% if bill_data.payment_mode %}
                             <span class="text-muted" style="font-size: 0.85rem; font-weight: normal;">
                                 ({{ bill_data.payment_mode }})
+                            </span>
+                            {% endif %}
+
+                            {% if bill_data.payment_date %}
+                            <span class="text-success" style="font-size: 0.85rem; font-weight: normal; margin-left: 5px;" title="Payment Received Date">
+                                Paid: {{ bill_data.payment_date }}
                             </span>
                             {% endif %}
 
@@ -305,6 +312,12 @@
             <input type="hidden" name="sales_id" id="payment-sales-id">
             <input type="hidden" name="status_type" value="payment">
             <input type="hidden" id="raw-bill-total">
+            <input type="hidden" id="raw-prev-paid" value="0">
+            <div class="form-group mb-2">
+                <label style="font-weight: bold; margin-bottom: 5px; display: block;">Payment Date & Time (IST)</label>
+                <input type="datetime-local" name="payment_date" id="inp-payment-date" required
+                    style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; font-family: inherit;">
+            </div>
             <div class="dashboard-grid" style="grid-template-columns: 1fr 1fr; gap: 10px;">
                 <div class="form-group">
                     <label>Cash Received</label>
@@ -420,6 +433,20 @@
         document.getElementById('downloadModal').classList.add('active');
     }
 
+    function getISTNowString() {
+        const now = new Date();
+        const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+        const ist = new Date(utc + (3600000 * 5.5));
+        
+        const year = ist.getFullYear();
+        const month = String(ist.getMonth() + 1).padStart(2, '0');
+        const day = String(ist.getDate()).padStart(2, '0');
+        const hours = String(ist.getHours()).padStart(2, '0');
+        const minutes = String(ist.getMinutes()).padStart(2, '0');
+        
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+    }
+
     // --- QUICK FULL PAY (pre-fills remaining due, opens modal) ---
     function openFullPayModal(btnElement, salesId, totalAmount, alreadyPaid) {
         const remaining = totalAmount - alreadyPaid;
@@ -428,6 +455,7 @@
         document.getElementById('payment-sales-id').value = salesId;
         document.getElementById('pay-modal-total-display').textContent = '₹' + totalAmount.toFixed(2);
         document.getElementById('raw-bill-total').value = totalAmount;
+        document.getElementById('raw-prev-paid').value = alreadyPaid;
 
         const prevText = `₹${alreadyPaid.toFixed(2)} already paid`;
         document.getElementById('pay-modal-prev-paid').textContent = prevText;
@@ -439,6 +467,11 @@
         document.getElementById('overpayment-options').style.display = 'none';
         document.getElementById('underpayment-options').style.display = 'none';
         document.getElementById('calc-result-area').style.display = 'block';
+
+        // Pre-fill payment date
+        const billItem = btnElement.closest('.bill-item');
+        const existingDate = billItem ? billItem.getAttribute('data-payment-date') : '';
+        document.getElementById('inp-payment-date').value = existingDate || getISTNowString();
 
         calcChange();
         document.getElementById('paymentModal').classList.add('active');
@@ -462,20 +495,24 @@
         // 4. Update Header Visuals
         document.getElementById('pay-modal-total-display').textContent = '₹' + totalAmount.toFixed(2);
         document.getElementById('raw-bill-total').value = totalAmount; // Hidden input for calculation
+        document.getElementById('raw-prev-paid').value = totalPrev;
 
         // Show "Previous Payment" text
         const prevText = `₹${totalPrev.toFixed(2)} (Cash: ${prevCash}, Online: ${prevOnline})`;
         document.getElementById('pay-modal-prev-paid').textContent = prevText;
 
-        // 5. Pre-fill Inputs with Existing Values
-        // This allows you to easily edit the previous amount
-        document.getElementById('inp-cash').value = prevCash;
-        document.getElementById('inp-online').value = prevOnline;
+        // 5. Pre-fill Inputs with 0 (since they enter the new payment amount being paid now)
+        document.getElementById('inp-cash').value = 0;
+        document.getElementById('inp-online').value = 0;
 
         // 6. Reset UI Sections (Hide all option boxes initially)
         document.getElementById('overpayment-options').style.display = 'none';
         document.getElementById('underpayment-options').style.display = 'none';
         document.getElementById('calc-result-area').style.display = 'block';
+
+        // Pre-fill payment date
+        const existingDate = billItem.getAttribute('data-payment-date');
+        document.getElementById('inp-payment-date').value = existingDate || getISTNowString();
 
         // 7. Run Calculation & Open Modal
         calcChange();
@@ -485,10 +522,11 @@
     // --- CALCULATE CHANGE & SHOW OPTIONS ---
     function calcChange() {
         const billTotal = parseFloat(document.getElementById('raw-bill-total').value) || 0;
+        const prevPaid = parseFloat(document.getElementById('raw-prev-paid').value) || 0;
         const cash = parseFloat(document.getElementById('inp-cash').value) || 0;
         const online = parseFloat(document.getElementById('inp-online').value) || 0;
 
-        const totalPaid = cash + online;
+        const totalPaid = prevPaid + cash + online;
         const difference = billTotal - totalPaid; // Positive = Due, Negative = Extra
 
         // UI Elements

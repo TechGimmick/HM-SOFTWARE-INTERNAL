@@ -2,6 +2,31 @@ from flask import Flask
 from app.config import Config
 from app.extensions import db, login_manager
 import os
+from sqlalchemy import inspect, text
+
+def _ensure_sales_payment_date_column():
+    inspector = inspect(db.engine)
+    if not inspector.has_table('sales'):
+        return
+
+    existing_columns = {col['name'] for col in inspector.get_columns('sales')}
+    if 'payment_date' not in existing_columns:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE sales ADD COLUMN payment_date TIMESTAMP NULL"))
+
+def _ensure_sale_payments_table():
+    inspector = inspect(db.engine)
+    if not inspector.has_table('sale_payments'):
+        with db.engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE sale_payments (
+                    id SERIAL PRIMARY KEY,
+                    sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+                    amount_cash DOUBLE PRECISION DEFAULT 0.0,
+                    amount_online DOUBLE PRECISION DEFAULT 0.0,
+                    payment_date TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
 
 def create_app():
     # Specify the template and static folders relative to the project root
@@ -40,5 +65,10 @@ def create_app():
     app.register_blueprint(pdf_bp)
     app.register_blueprint(tally_bp)
     app.register_blueprint(cashbook_bp)
+    
+    with app.app_context():
+        db.create_all()
+        _ensure_sales_payment_date_column()
+        _ensure_sale_payments_table()
     
     return app

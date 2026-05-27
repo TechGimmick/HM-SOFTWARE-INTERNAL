@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash
 from flask_login import login_required, current_user
 from app.extensions import db
-from app.models import Sale, TallyBill, CashBookEntry, CashBookDailyBalance
+from app.models import Sale, TallyBill, CashBookEntry, CashBookDailyBalance, SalePayment
 from datetime import datetime, timedelta
 from sqlalchemy import func
 
@@ -43,20 +43,24 @@ def _get_cashbook_data(date_obj):
       - totals         : aggregated summary dict
     """
     # ── 1. Retail sales (not credit) on this date ──────────────────────────
-    retail_sales = Sale.query.filter(
-        func.date(Sale.date) == date_obj,
-        Sale.payment_status.in_(['Payment Received', 'Partial Payment'])
-    ).order_by(Sale.date.asc(), Sale.id.asc()).all()
+    # 1a. Retail payments logged in the multi-payment ledger for this date
+    payments = db.session.query(SalePayment).filter(
+        func.date(SalePayment.payment_date) == date_obj
+    ).all()
 
-    retail_entries = []
-    for s in retail_sales:
-        cash_in   = s.paid_cash   or 0.0
-        online_in = s.paid_online or 0.0
+    retail_entries_raw = []
+    for p in payments:
+        s = p.sale
+        cash_in   = p.amount_cash   or 0.0
+        online_in = p.amount_online or 0.0
         if cash_in <= 0 and online_in <= 0:
-            continue  # pure credit — skip
-        retail_entries.append({
+            continue
+            
+        display_time = p.payment_date
+        
+        retail_entries_raw.append({
             'id'          : s.id,
-            'time'        : (s.date + timedelta(hours=5, minutes=30)).strftime('%I:%M %p'),
+            'time'        : (display_time + timedelta(hours=5, minutes=30)).strftime('%I:%M %p'),
             'client'      : s.client_name or '—',
             'description' : ', '.join(
                               [f"{i.product_name} ×{i.qty_sold}" for i in s.items]
@@ -64,7 +68,45 @@ def _get_cashbook_data(date_obj):
             'cash_in'     : round(cash_in,   2),
             'online_in'   : round(online_in, 2),
             'type'        : 'retail',
+            'sort_time'   : display_time,
         })
+
+    # 1b. Legacy retail sales (not credit) on this date without ledger entries
+    from sqlalchemy.sql import exists
+    legacy_sales = Sale.query.filter(
+        func.date(func.coalesce(Sale.payment_date, Sale.date)) == date_obj,
+        Sale.payment_status.in_(['Payment Received', 'Partial Payment']),
+        ~exists().where(SalePayment.sale_id == Sale.id)
+    ).all()
+
+    for s in legacy_sales:
+        cash_in   = s.paid_cash   or 0.0
+        online_in = s.paid_online or 0.0
+        if cash_in <= 0 and online_in <= 0:
+            continue  # pure credit — skip
+            
+        display_time = s.payment_date if s.payment_date else s.date
+        
+        retail_entries_raw.append({
+            'id'          : s.id,
+            'time'        : (display_time + timedelta(hours=5, minutes=30)).strftime('%I:%M %p'),
+            'client'      : s.client_name or '—',
+            'description' : ', '.join(
+                              [f"{i.product_name} ×{i.qty_sold}" for i in s.items]
+                          ) if s.items else 'Retail Bill',
+            'cash_in'     : round(cash_in,   2),
+            'online_in'   : round(online_in, 2),
+            'type'        : 'retail',
+            'sort_time'   : display_time,
+        })
+
+    # Sort all retail entries by their original sort_time and ID
+    retail_entries_raw.sort(key=lambda x: (x['sort_time'], x['id']))
+    
+    retail_entries = []
+    for entry in retail_entries_raw:
+        entry.pop('sort_time', None)
+        retail_entries.append(entry)
 
     # ── 2. Tally (GST) invoice sales (not credit) on this date ────────────
     tally_bills = TallyBill.query.filter(
