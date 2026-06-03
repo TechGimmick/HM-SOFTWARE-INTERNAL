@@ -4,6 +4,7 @@ from flask_login import login_required, current_user
 from app.extensions import db
 from app.models import Product, Supplier, Purchase, Warehouse, WarehouseStock
 from sqlalchemy import or_
+from app.activity_service import log_activity
 from collections import defaultdict
 import json
 import datetime
@@ -211,6 +212,12 @@ def process_purchase():
                 )
                 db.session.add(new_p)
             
+        if edit_po_id:
+            log_activity('UPDATE', 'Purchase', f'Purchase Order #{edit_po_id} updated',
+                         ref_id=int(edit_po_id), ref_type='Purchase')
+        else:
+            log_activity('CREATE', 'Purchase', f'New PO submitted for approval — awaiting admin',
+                         ref_type='Purchase')
         db.session.commit()
         if edit_po_id:
             flash(f"Purchase Order #{edit_po_id} updated successfully.", "success")
@@ -382,6 +389,8 @@ def approve_purchase():
         purchase = db.session.get(Purchase, pid)
         if purchase and purchase.status == 'Waiting':
             purchase.status = 'Approved'
+            log_activity('UPDATE', 'Purchase', f'PO #{pid} approved for supplier delivery',
+                         ref_id=int(pid), ref_type='Purchase')
             db.session.commit()
             flash(f"PO #{pid} approved — ready to order.", "success")
         else:
@@ -419,7 +428,10 @@ def delete_purchase():
                         product.quantity -= qty_added
                         db.session.add(product)
 
+        po_snap = f'PO #{pid} ({purchase.supplier_name}, {purchase.status})'
         db.session.delete(purchase)
+        log_activity('DELETE', 'Purchase', f'Deleted {po_snap}',
+                     ref_id=int(pid), ref_type='Purchase')
         db.session.commit()
         flash(f"Purchase Order #{pid} deleted successfully.", "success")
     except Exception as e:
@@ -451,6 +463,8 @@ def update_purchase_status():
         # Simple status reversal — Approved → Waiting (no stock changes needed)
         if new_status_req == 'Waiting' and purchase.status == 'Approved':
             purchase.status = 'Waiting'
+            log_activity('UPDATE', 'Purchase', f'PO #{pid} reverted to Waiting for approval',
+                         ref_id=int(pid), ref_type='Purchase')
             db.session.commit()
             flash(f"PO #{pid} reverted to Waiting for approval.", "info")
             return redirect(url_for('purchase.purchase_log'))
@@ -507,6 +521,8 @@ def update_purchase_status():
             purchase.status = 'Pending'
             purchase.received_date = None
             purchase.received_details = None
+            log_activity('UPDATE', 'Purchase', f'PO #{pid} reverted to Pending (stock removed)',
+                         ref_id=int(pid), ref_type='Purchase')
             db.session.commit()
             flash("Purchase reverted to Pending.", "success")
             
@@ -598,6 +614,9 @@ def update_purchase_status():
                             except Exception:
                                 pass
                                 
+            status_snap = purchase.status
+            log_activity('UPDATE', 'Purchase', f'PO #{pid} marked as {status_snap}',
+                         ref_id=int(pid), ref_type='Purchase')
             db.session.commit()
             flash(f"Purchase updated to {purchase.status}.", "success")
             
@@ -614,7 +633,11 @@ def update_purchase_status():
 def add_supplier():
     name = request.form.get('supplier_name')
     if name and not Supplier.query.filter_by(name=name).first(): 
-        db.session.add(Supplier(name=name))
+        supplier = Supplier(name=name)
+        db.session.add(supplier)
+        db.session.flush()
+        log_activity('CREATE', 'Purchase', f'New supplier "{name}" added',
+                     ref_id=supplier.id, ref_type='Supplier')
         db.session.commit()
         flash(f"Supplier '{name}' added.", "success")
     return redirect(url_for('purchase.purchase_page'))
@@ -658,6 +681,8 @@ def add_product_to_supplier():
                 supplier_id=supplier_id, quantity=0
             )
             db.session.add(new_prod)
+            log_activity('CREATE', 'Purchase', f'New product "{sales_name}" added under supplier',
+                         ref_id=new_prod.id, ref_type='Product')
             db.session.commit()
             flash(f"Product '{sales_name}' added.", "success")
             return redirect(url_for('purchase.purchase_page', selected_supplier=supplier_id))
@@ -686,6 +711,14 @@ def update_product_inline():
                 product.max_stock = val_int
             elif field == 'pack_size':
                 product.pack_size = val_int
+            field_labels = {
+                'quantity': 'Stock qty', 'min_stock': 'Min stock',
+                'max_stock': 'Max stock', 'pack_size': 'Pack size'
+            }
+            label = field_labels.get(field, field)
+            log_activity('UPDATE', 'Inventory',
+                         f'{label} changed to {val_int} for "{product.name}"',
+                         ref_id=product.id, ref_type='Product')
             db.session.commit()
             return jsonify({'success': True})
         except ValueError:

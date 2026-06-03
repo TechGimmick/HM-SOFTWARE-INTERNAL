@@ -1048,6 +1048,7 @@ tbody tr:hover {
 .pl-stat-card.pending  { border-color: var(--warning-text); }    .pl-stat-card.pending  .stat-val { color: var(--warning-text); }
 .pl-stat-card.partial  { border-color: #f39c12; }                .pl-stat-card.partial  .stat-val { color: #f39c12; }
 .pl-stat-card.received { border-color: var(--success); }         .pl-stat-card.received .stat-val { color: var(--success); }
+.pl-stat-card.inter-wh { border-color: #ea580c; }                .pl-stat-card.inter-wh .stat-val { color: #ea580c; }
 .pl-stat-card.damaged  { border-color: var(--danger); }          .pl-stat-card.damaged  .stat-val { color: var(--danger); }
 
 /* --- PO Table --- */
@@ -1072,6 +1073,7 @@ tbody tr:hover {
 .sp-partial-pending  { background: rgba(243,156,18,0.15);  color: #e67e22; }
 .sp-partial-received { background: rgba(59,130,246,0.15);  color: #2563eb; }
 .sp-received         { background: rgba(16,185,129,0.15);  color: #059669; }
+.sp-transfer         { background: rgba(249,115,22,0.15);  color: #ea580c; }
 
 /* --- Detail Drawer (centered modal) --- */
 #po-drawer { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 1050; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
@@ -1163,6 +1165,33 @@ tbody tr:hover {
 
 .hmp-dash-menu .dropdown-item:hover {
     background: #f0f4ff;
+}
+
+.hmp-dash-item-title {
+    display: block;
+    font-size: 0.9rem;
+}
+
+.hmp-dash-item-subtitle {
+    font-size: 0.75rem;
+}
+
+/* Warehouses page */
+.warehouse-page-card {
+    margin-bottom: 1rem;
+}
+
+.warehouse-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.warehouse-list-item {
+    padding: 12px;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    margin-bottom: 10px;
 }
 
 /* =====================================================================
@@ -1580,60 +1609,6 @@ tbody tr:hover {
 .cb-grand-total .gt-value.amber { color: #fbbf24; }
 .cb-grand-total .gt-value.red   { color: #f87171; }
 
-/* ── Print button ── */
-.cb-print-btn {
-    padding: 8px 18px;
-    background: rgba(255,255,255,0.12);
-    border: 1px solid rgba(255,255,255,0.2);
-    border-radius: 8px;
-    color: #fff;
-    font-weight: 600;
-    cursor: pointer;
-    font-size: 0.88rem;
-    transition: background 0.15s;
-}
-
-.cb-print-btn:hover { background: rgba(255,255,255,0.22); }
-
-/* ── Print media ── */
-@media print {
-    .cb-topbar .cb-date-input,
-    .cb-add-expense-bar,
-    .cb-del-btn,
-    .cb-save-balance-btn,
-    .cb-print-btn { display: none !important; }
-}
-
-/* ── Responsive ── */
-@media (max-width: 640px) {
-    .cb-summary-row       { grid-template-columns: 1fr 1fr; }
-    .cb-grand-total       { flex-direction: column; }
-    .cb-section-header    { flex-direction: column; align-items: flex-start; gap: 6px; }
-    .cb-add-expense-bar   { flex-direction: column; align-items: stretch; }
-    .cb-input-desc,
-    .cb-input-amt,
-    .cb-mode-select       { max-width: 100%; flex: unset; width: 100%; }
-}
-
-/* =====================================================================
-   Quick Add Product Modal (Sales Page)
-   ===================================================================== */
-
-/* Sits above the price-choice modal (z-index 3000) */
-.qp-modal { z-index: 3500; }
-
-/* Constrain width of the modal inner content box */
-.qp-modal-content { max-width: 520px; }
-
-/* Subtitle line below the modal heading */
-.qp-subtitle {
-    font-size: 0.85rem;
-    margin-top: -8px;
-}
-
-
-
-
 /* ── Reconciliation Card & Container ── */
 .cb-recon-card {
     background: #fff;
@@ -1800,4 +1775,493 @@ tbody tr:hover {
 
 .cb-save-balance-btn:active {
     transform: scale(0.98);
+}
+
+
+/* ── Print button ── */
+.cb-print-btn {
+    padding: 8px 18px;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 8px;
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.88rem;
+    transition: background 0.15s;
+}
+
+.cb-print-btn:hover { background: rgba(255,255,255,0.22); }
+
+/* ── Print media ── */
+@media print {
+    .cb-topbar .cb-date-input,
+    .cb-add-expense-bar,
+    .cb-del-btn,
+    .cb-save-balance-btn,
+    .cb-print-btn { display: none !important; }
+}
+
+/* ── Responsive ── */
+@media (max-width: 640px) {
+    .cb-summary-row       { grid-template-columns: 1fr 1fr; }
+    .cb-grand-total       { flex-direction: column; }
+    .cb-section-header    { flex-direction: column; align-items: flex-start; gap: 6px; }
+    .cb-add-expense-bar   { flex-direction: column; align-items: stretch; }
+    .cb-input-desc,
+    .cb-input-amt,
+    .cb-mode-select       { max-width: 100%; flex: unset; width: 100%; }
+}
+
+/* =====================================================================
+   Quick Add Product Modal (Sales Page)
+   ===================================================================== */
+
+/* Sits above the price-choice modal (z-index 3000) */
+.qp-modal { z-index: 3500; }
+
+/* Constrain width of the modal inner content box */
+.qp-modal-content { max-width: 520px; }
+
+/* Subtitle line below the modal heading */
+.qp-subtitle {
+    font-size: 0.85rem;
+    margin-top: -8px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ACTIVITY LOG SIDEBAR
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+    --log-width:   340px;
+    --log-bg:      #0f172a;
+    --log-surface: #1e293b;
+    --log-border:  #334155;
+    --log-text:    #e2e8f0;
+    --log-muted:   #94a3b8;
+    --log-accent:  #38bdf8;
+}
+
+/* ── Sidebar Panel ── */
+#activitySidebar {
+    position: fixed;
+    top: 0;
+    right: calc(-1 * var(--log-width) - 10px);
+    width: var(--log-width);
+    height: 100vh;
+    background: var(--log-bg);
+    border-left: 1px solid var(--log-border);
+    z-index: 1055;
+    display: flex;
+    flex-direction: column;
+    transition: right 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    font-family: 'Inter', sans-serif;
+    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.4);
+}
+
+#activitySidebar.open { right: 0; }
+
+/* ── Toggle Button ── */
+#activityToggleBtn {
+    position: fixed;
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
+    z-index: 1056;
+    width: 36px;
+    height: 80px;
+    background: linear-gradient(180deg, #1e40af, #0ea5e9);
+    border: none;
+    border-radius: 10px 0 0 10px;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    box-shadow: -3px 0 12px rgba(14, 165, 233, 0.4);
+    transition: right 0.35s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s;
+}
+
+#activityToggleBtn:hover { background: linear-gradient(180deg, #1d4ed8, #0284c7); }
+
+#activityToggleBtn.sidebar-open { right: var(--log-width); }
+
+#activityToggleBtn .btn-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    line-height: 1;
+}
+
+/* ── Notification Badge ── */
+#activityBadge {
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #ef4444;
+    color: white;
+    font-size: 9px;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 1px 5px;
+    min-width: 18px;
+    text-align: center;
+    line-height: 16px;
+}
+
+/* ── Sidebar Header ── */
+.log-header {
+    padding: 16px 16px 12px;
+    border-bottom: 1px solid var(--log-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+}
+
+.log-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.log-header-icon {
+    width: 32px;
+    height: 32px;
+    background: linear-gradient(135deg, #1e40af, #0ea5e9);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+}
+
+.log-header h6 {
+    color: var(--log-text);
+    font-weight: 700;
+    font-size: 14px;
+    margin: 0;
+    line-height: 1.2;
+}
+
+.log-header small {
+    color: var(--log-muted);
+    font-size: 10px;
+    display: block;
+}
+
+.log-close-btn {
+    background: none;
+    border: none;
+    color: var(--log-muted);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    line-height: 1;
+    transition: background 0.2s, color 0.2s;
+}
+
+.log-close-btn:hover {
+    background: var(--log-surface);
+    color: white;
+}
+
+/* ── Time Range Quick Tabs ── */
+.log-time-tabs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 12px 4px;
+    border-bottom: 1px solid var(--log-border);
+    flex-wrap: wrap;
+}
+
+.log-time-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--log-muted);
+    border-radius: 20px;
+    padding: 3px 9px;
+    font-size: 10.5px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.log-time-btn:hover {
+    border-color: var(--log-border);
+    color: var(--log-text);
+}
+
+.log-time-btn.active {
+    background: #0ea5e9;
+    border-color: #0ea5e9;
+    color: #fff;
+    font-weight: 600;
+}
+
+.log-date-picker {
+    background: var(--log-surface);
+    border: 1px solid var(--log-border);
+    color: var(--log-muted);
+    border-radius: 6px;
+    padding: 3px 6px;
+    font-size: 10.5px;
+    cursor: pointer;
+    outline: none;
+    margin-left: auto;
+}
+
+.log-date-picker:focus { border-color: #0ea5e9; color: var(--log-text); }
+.log-date-picker::-webkit-calendar-picker-indicator { filter: invert(0.6); cursor: pointer; }
+
+/* ── Action Filter Chips ── */
+.log-filters {
+    padding: 10px 16px;
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--log-border);
+    overflow-x: auto;
+}
+
+.log-filter-btn {
+    background: var(--log-surface);
+    border: 1px solid var(--log-border);
+    color: var(--log-muted);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 20px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+}
+
+.log-filter-btn:hover,
+.log-filter-btn.active {
+    background: #0ea5e9;
+    border-color: #0ea5e9;
+    color: white;
+}
+
+/* ── Search Bar ── */
+.log-search {
+    padding: 8px 16px;
+    flex-shrink: 0;
+}
+
+.log-search-wrap { position: relative; }
+
+.log-search input {
+    width: 100%;
+    background: var(--log-surface);
+    border: 1px solid var(--log-border);
+    border-radius: 8px;
+    color: var(--log-text);
+    padding: 6px 10px 6px 30px;
+    font-size: 12px;
+    outline: none;
+}
+
+.log-search input::placeholder { color: var(--log-muted); }
+.log-search input:focus        { border-color: #0ea5e9; }
+
+.log-search-icon {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--log-muted);
+    font-size: 12px;
+}
+
+/* ── Feed ── */
+.log-feed {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+}
+
+.log-feed::-webkit-scrollbar       { width: 4px; }
+.log-feed::-webkit-scrollbar-track { background: transparent; }
+.log-feed::-webkit-scrollbar-thumb { background: var(--log-border); border-radius: 2px; }
+
+/* ── Log Entry ── */
+.log-entry {
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    transition: background 0.15s;
+}
+
+.log-entry:hover { background: rgba(30, 41, 59, 0.6); }
+
+.log-avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: white;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.log-entry-body { flex: 1; min-width: 0; }
+
+.log-entry-top {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 3px;
+}
+
+/* ── Action Badges ── */
+.log-action-badge {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 20px;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+}
+
+.badge-CREATE  { background: rgba(16,185,129,0.2);  color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+.badge-UPDATE  { background: rgba(59,130,246,0.2);  color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+.badge-DELETE  { background: rgba(239,68,68,0.2);   color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+.badge-PAYMENT { background: rgba(168,85,247,0.2);  color: #c084fc; border: 1px solid rgba(168,85,247,0.3); }
+.badge-LOGIN   { background: rgba(20,184,166,0.2);  color: #2dd4bf; border: 1px solid rgba(20,184,166,0.3); }
+.badge-LOGOUT  { background: rgba(107,114,128,0.2); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }
+.badge-EXPENSE { background: rgba(251,146,60,0.2);  color: #fb923c; border: 1px solid rgba(251,146,60,0.3); }
+.badge-INCOME  { background: rgba(16,185,129,0.2);  color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+
+.log-module-chip {
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--log-muted);
+    background: rgba(148, 163, 184, 0.1);
+    border-radius: 4px;
+    padding: 1px 5px;
+}
+
+.log-username {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--log-accent);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.log-description {
+    font-size: 11.5px;
+    color: #cbd5e1;
+    line-height: 1.4;
+    margin-bottom: 4px;
+    word-break: break-word;
+}
+
+.log-time {
+    font-size: 10px;
+    color: var(--log-muted);
+}
+
+/* ── Footer / Refresh ── */
+.log-footer {
+    padding: 8px 16px;
+    border-top: 1px solid var(--log-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+}
+
+.log-footer-text {
+    font-size: 10px;
+    color: var(--log-muted);
+}
+
+.log-refresh-btn {
+    background: none;
+    border: 1px solid var(--log-border);
+    color: var(--log-muted);
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.log-refresh-btn:hover {
+    background: var(--log-surface);
+    color: white;
+}
+
+.log-refresh-btn.spinning svg { animation: log-spin 0.8s linear infinite; }
+
+@keyframes log-spin { to { transform: rotate(360deg); } }
+
+/* ── Empty State ── */
+.log-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    color: var(--log-muted);
+    text-align: center;
+}
+
+.log-empty-icon { font-size: 36px; margin-bottom: 10px; opacity: 0.4; }
+.log-empty-text { font-size: 12px; }
+
+/* ── Skeleton Loader ── */
+.log-skeleton {
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+}
+
+.skeleton-line {
+    background: linear-gradient(90deg, var(--log-surface) 25%, #293548 50%, var(--log-surface) 75%);
+    background-size: 200% 100%;
+    animation: log-shimmer 1.5s infinite;
+    border-radius: 4px;
+    height: 10px;
+    margin-bottom: 6px;
+}
+
+@keyframes log-shimmer {
+    0%   { background-position:  200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* ── Mobile Overlay ── */
+#activityOverlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1054;
+}
+
+#activityOverlay.show { display: block; }
+
+@media (max-width: 576px) {
+    :root { --log-width: 100vw; }
+    #activityToggleBtn .btn-label { display: none; }
 }

@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from app.extensions import db
 from app.models import Sale, SaleItem, Product, Customer, Warehouse, WarehouseStock, SalePayment
+from app.activity_service import log_activity
 from sqlalchemy import func, case
 import json
 from datetime import datetime, timedelta
@@ -61,9 +62,13 @@ def get_product_details(product_id):
 def add_new_client_db(name, phone=None):
     if not name: return False
     existing = Customer.query.filter(func.lower(Customer.name) == func.lower(name)).first()
-    if not existing: 
-        db.session.add(Customer(name=name, phone=phone))
-        db.session.commit()
+    if not existing:
+        customer = Customer(name=name, phone=phone)
+        db.session.add(customer)
+        db.session.flush()                          # get ID without a separate commit
+        log_activity('CREATE', 'Clients',
+                     f'New client "{name}" added' + (f' ({phone})' if phone else ''),
+                     ref_id=customer.id, ref_type='Customer')
         return True
     return False
 
@@ -120,15 +125,16 @@ def sales_page():
 @sales_bp.route("/add_client", methods=["POST"])
 @login_required
 def add_client():
-    new_name = request.form.get('new_client_name')
+    new_name  = request.form.get('new_client_name')
     new_phone = request.form.get('new_client_phone')
-    
+
     if new_name:
-        if add_new_client_db(new_name, new_phone): 
+        if add_new_client_db(new_name, new_phone):
+            db.session.commit()   # single atomic commit: customer row + activity log
             flash("Client added.", "success")
             redirect_val = f"{new_name} - {new_phone}" if new_phone else new_name
             return redirect(url_for('sales.sales_page', client_name=redirect_val))
-        else: 
+        else:
             flash("Client exists or invalid.", "warning")
     return redirect(url_for('sales.sales_page'))
 
@@ -191,7 +197,10 @@ def process_sale():
                     product_name=item['name'],
                     qty=qty
                 ))
-            db.session.commit()
+            log_activity('CREATE', 'Tally',
+                         f'New Tally Bill #{invoice_number} for {client_name}',
+                         ref_id=new_tally.id, ref_type='TallyBill')
+            db.session.commit()   # single atomic commit: tally bill + log
             flash(f"Tally Bill #{invoice_number} recorded for {client_name}.", "success")
             return redirect(url_for('sales.tally_sales_page'))
 
@@ -238,7 +247,8 @@ def process_sale():
             ))
 
         new_sale.grand_total = running_total
-        db.session.commit()   
+        log_activity('CREATE', 'Sales', f'New sale #{new_sale.id} for {client_name} — ₹{running_total:.0f}', ref_id=new_sale.id, ref_type='Sale')
+        db.session.commit()   # single atomic commit: sale + log together
         flash(f"Bill No. {new_sale.id} recorded.", "success")
     except Exception as e:
         db.session.rollback()
@@ -492,15 +502,19 @@ def process_edit_sale():
 
         # --- 2. Handle delete-bill case ---
         if not cart_items:
+            # Snapshot values BEFORE delete — SQLAlchemy expires object after commit
+            sale_id_snap    = sale.id
+            client_name_snap = sale.client_name
             if sale.wallet_credit and sale.wallet_credit > 0:
                 search_name = sale.client_name.split(' - ')[0].strip()
                 customer = Customer.query.filter(func.lower(Customer.name) == func.lower(search_name)).first()
                 if customer:
                     customer.wallet_balance -= sale.wallet_credit
                     db.session.add(customer)
-                    flash(f"Reverted ₹{sale.wallet_credit} from {customer.name}'s wallet.", "info")
+                    flash(f"₹{sale.wallet_credit} reverted from {customer.name}'s wallet.", "info")
             db.session.delete(sale)
-            db.session.commit()
+            log_activity('DELETE', 'Sales', f'Deleted sale #{sale_id_snap} ({client_name_snap})', ref_id=sale_id_snap, ref_type='Sale')
+            db.session.commit()   # single atomic commit: delete + log together
             flash("Bill deleted.", "success")
             return redirect(url_for('sales.sales_log'))
 
@@ -552,7 +566,8 @@ def process_edit_sale():
             ))
 
         sale.grand_total = running_total
-        db.session.commit()   # single commit for everything
+        log_activity('UPDATE', 'Sales', f'Updated sale #{sale.id} for {sale.client_name} — ₹{running_total:.0f}', ref_id=sale.id, ref_type='Sale')
+        db.session.commit()   # single atomic commit: edit + log together
         flash(f"Bill #{sale.id} updated.", "success")
 
     except Exception as e:
@@ -747,7 +762,12 @@ def update_status():
                         modes.append("Online")
                     sale.payment_mode = " + ".join(modes) if modes else None
                 
-            db.session.commit()
+            # --- Activity Log (before commit so it's atomic) ---
+            if stype == 'payment':
+                log_activity('PAYMENT', 'Sales', f'Payment recorded for sale #{sid} ({sale.client_name}) — ₹{(sale.paid_cash or 0) + (sale.paid_online or 0):.0f}', ref_id=sale.id, ref_type='Sale')
+            else:
+                log_activity('UPDATE', 'Sales', f'Order status updated to "{sale.order_status}" for sale #{sid}', ref_id=sale.id, ref_type='Sale')
+            db.session.commit()   # single atomic commit: status change + log
     except Exception as e:
         db.session.rollback()
         print(f"ERROR: {e}")
@@ -831,7 +851,8 @@ def quick_add_product():
         supplier_id       = supplier_id,
     )
     db.session.add(product)
-    db.session.commit()
+    log_activity('CREATE', 'Inventory', f'New product "{sales_name}" added from Sales page', ref_id=product.id, ref_type='Product')
+    db.session.commit()   # single atomic commit: product + log together
 
     return jsonify({
         'success': True,

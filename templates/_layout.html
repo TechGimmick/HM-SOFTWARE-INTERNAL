@@ -11,14 +11,14 @@
     <link rel="preload" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" as="script">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <!-- Google Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
+    <!-- All Activity Log styles are in static/style.css -->
 
     <script>
         // --- AUTO-LOGOUT ON TAB CLOSE ---
-        // If the user is authenticated, ensure the tab_token is always set.
-        // sessionStorage is wiped when the tab is CLOSED, so on next open they
-        // will hit the login page (which does sessionStorage.removeItem) and
-        // the server session will expire via Flask-Login's remember_me setting.
         const isUserLoggedIn = "{{ current_user.is_authenticated }}";
         if (isUserLoggedIn === "True") {
             if (!sessionStorage.getItem('tab_token')) {
@@ -46,7 +46,6 @@
             <div class="collapse navbar-collapse" id="hmpNavbar">
 
                 <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                    <!-- Dashboard with hover dropdown -->
                     <!-- Dashboard link (Dropdown only for admin) -->
                     {% if current_user.role == 'admin' %}
                     <li class="nav-item dropdown hmp-dash-dropdown" id="dash-nav-item">
@@ -64,8 +63,8 @@
                                    rel="noopener">
                                     <span>📒</span>
                                     <span>
-                                        <strong style="display:block;font-size:0.9rem;">Cash Book</strong>
-                                        <small class="text-muted" style="font-size:0.75rem;">Daily cash &amp; online register</small>
+                                        <strong class="hmp-dash-item-title">Cash Book</strong>
+                                        <small class="text-muted hmp-dash-item-subtitle">Daily cash &amp; online register</small>
                                     </span>
                                 </a>
                             </li>
@@ -108,11 +107,24 @@
                     </li>
                 </ul>
 
-                <div class="d-flex align-items-center">
+                <div class="d-flex align-items-center gap-2">
                     {% if current_user.is_authenticated %}
-                    <div class="me-3 text-end d-none d-lg-block">
-                        <span class="d-block text-dark fw-bold" style="font-size: 0.9rem;">{{ current_user.username
-                            }}</span>
+
+                    <!-- Activity Log Toggle Button in Navbar -->
+                    <button id="navActivityBtn" onclick="toggleActivitySidebar()"
+                        class="btn btn-sm d-flex align-items-center gap-1"
+                        style="background: linear-gradient(135deg,#1e3a5f,#0ea5e9); color:white; border:none; font-size:12px; padding: 5px 10px; border-radius:8px; position:relative;"
+                        title="Activity Log">
+                        <svg width="13" height="13" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/>
+                            <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
+                        </svg>
+                        <span>Activity</span>
+                        <span id="navActivityBadge" style="display:none; background:#ef4444; color:white; font-size:9px; font-weight:700; border-radius:999px; padding:1px 5px; min-width:16px; text-align:center; line-height:16px;"></span>
+                    </button>
+
+                    <div class="me-1 text-end d-none d-lg-block">
+                        <span class="d-block text-dark fw-bold" style="font-size: 0.9rem;">{{ current_user.username }}</span>
                         <span class="badge bg-secondary" style="font-size: 0.7rem;">{{ current_user.role|upper }}</span>
                     </div>
                     <div class="d-lg-none mb-2 text-muted small">
@@ -127,6 +139,304 @@
             </div>
         </div>
     </nav>
+
+    <!-- ── Activity Log Sidebar ──────────────────────────────────── -->
+    {% if current_user.is_authenticated %}
+
+    <!-- Mobile Overlay -->
+    <div id="activityOverlay" onclick="toggleActivitySidebar()"></div>
+
+    <!-- Floating Toggle Button -->
+    <button id="activityToggleBtn" onclick="toggleActivitySidebar()" title="Activity Log">
+        <svg width="14" height="14" fill="white" viewBox="0 0 16 16">
+            <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/>
+            <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
+        </svg>
+        <span class="btn-label">LOG</span>
+        <span id="activityBadge" style="display:none;">0</span>
+    </button>
+
+    <!-- Sidebar Panel -->
+    <div id="activitySidebar">
+
+        <div class="log-header">
+            <div class="log-header-left">
+                <div class="log-header-icon">📋</div>
+                <div>
+                    <h6>Activity Log</h6>
+                    <small id="logRoleLabel">
+                        {% if current_user.role == 'admin' %}All Users · Live{% else %}Your Actions · Live{% endif %}
+                    </small>
+                </div>
+            </div>
+            <button class="log-close-btn" onclick="toggleActivitySidebar()" title="Close">✕</button>
+        </div>
+
+        <!-- Time Range Quick Tabs -->
+        <div class="log-time-tabs" id="logTimeTabs">
+            <button class="log-time-btn active" onclick="setTimeRange('session', this)" title="Since you logged in">Since Login</button>
+            <button class="log-time-btn" onclick="setTimeRange('today', this)">Today</button>
+            <button class="log-time-btn" onclick="setTimeRange('week', this)">This Week</button>
+            <button class="log-time-btn" onclick="setTimeRange('all', this)">All</button>
+            <input type="date" id="logDatePicker" class="log-date-picker"
+                   onchange="setTimeRange('date', null, this.value)"
+                   title="Pick a specific date"
+                   max="{{ now_date }}">
+        </div>
+
+        <!-- Filter Tabs -->
+        <div class="log-filters" id="logFilterBar">
+            <button class="log-filter-btn active" onclick="setLogFilter('all', this)">All</button>
+            <button class="log-filter-btn" onclick="setLogFilter('CREATE', this)">Create</button>
+            <button class="log-filter-btn" onclick="setLogFilter('UPDATE', this)">Update</button>
+            <button class="log-filter-btn" onclick="setLogFilter('DELETE', this)">Delete</button>
+            <button class="log-filter-btn" onclick="setLogFilter('PAYMENT', this)">Payment</button>
+            <button class="log-filter-btn" onclick="setLogFilter('LOGIN', this)">Login</button>
+        </div>
+
+        <!-- Search -->
+        <div class="log-search">
+            <div class="log-search-wrap">
+                <span class="log-search-icon">🔍</span>
+                <input type="text" id="logSearchInput" placeholder="Search activity..." oninput="renderLogs()">
+            </div>
+        </div>
+
+        <!-- Feed -->
+        <div class="log-feed" id="logFeed">
+            <!-- Skeleton loaders -->
+            <div class="log-skeleton">
+                <div class="skeleton-line" style="width:60%; height:8px;"></div>
+                <div class="skeleton-line" style="width:90%; height:10px;"></div>
+                <div class="skeleton-line" style="width:40%; height:8px;"></div>
+            </div>
+            <div class="log-skeleton">
+                <div class="skeleton-line" style="width:50%; height:8px;"></div>
+                <div class="skeleton-line" style="width:80%; height:10px;"></div>
+                <div class="skeleton-line" style="width:35%; height:8px;"></div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="log-footer">
+            <span class="log-footer-text" id="logLastUpdated">Refreshes every 30s</span>
+            <button class="log-refresh-btn" id="logRefreshBtn" onclick="fetchActivityLog(true)">
+                <svg id="refreshIcon" width="12" height="12" fill="currentColor" viewBox="0 0 16 16" style="margin-right:3px;">
+                    <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+                    <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+                </svg>
+                Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- Pass login_time from Flask session into JS -->
+    <div id="_logMeta"
+         data-login-time="{{ session.get('login_time', '') }}"
+         style="display:none;"></div>
+
+    <script>
+    // ── Activity Log Sidebar JS ─────────────────────────────────────
+    let _allLogs      = [];
+    let _activeFilter = 'all';
+    let _isAdmin      = false;
+    let _refreshTimer = null;
+    let _sidebarOpen  = false;
+    let _timeRange    = 'session';  // 'session' | 'today' | 'week' | 'all' | 'date'
+    let _pickedDate   = '';         // YYYY-MM-DD when _timeRange === 'date'
+
+    // Login time passed from Flask session
+    const _loginTime = document.getElementById('_logMeta')?.dataset?.loginTime || '';
+
+    const AVATAR_COLORS = [
+        '#2563eb','#7c3aed','#db2777','#dc2626','#d97706',
+        '#059669','#0891b2','#9333ea','#16a34a','#0284c7'
+    ];
+
+    function avatarColor(name) {
+        if (!name) return '#64748b';
+        let hash = 0;
+        for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+        return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+    }
+
+    function avatarInitial(name) {
+        return (name || '?')[0].toUpperCase();
+    }
+
+    function toggleActivitySidebar() {
+        _sidebarOpen = !_sidebarOpen;
+        const sidebar = document.getElementById('activitySidebar');
+        const btn = document.getElementById('activityToggleBtn');
+        const overlay = document.getElementById('activityOverlay');
+
+        if (_sidebarOpen) {
+            sidebar.classList.add('open');
+            btn.classList.add('sidebar-open');
+            overlay.classList.add('show');
+            fetchActivityLog(false);
+        } else {
+            sidebar.classList.remove('open');
+            btn.classList.remove('sidebar-open');
+            overlay.classList.remove('show');
+        }
+    }
+
+    function setLogFilter(filter, el) {
+        _activeFilter = filter;
+        document.querySelectorAll('.log-filter-btn').forEach(b => b.classList.remove('active'));
+        el.classList.add('active');
+        renderLogs();
+    }
+
+    async function fetchActivityLog(showSpinner) {
+        if (showSpinner) {
+            const btn = document.getElementById('logRefreshBtn');
+            btn.classList.add('spinning');
+        }
+
+        try {
+            // Build query params based on selected time range
+            const params = new URLSearchParams({ limit: 80 });
+            const todayIST = new Date(Date.now() + 5.5 * 3600000);  // approx IST
+            const todayStr = todayIST.toISOString().slice(0, 10);   // YYYY-MM-DD
+
+            if (_timeRange === 'session' && _loginTime) {
+                params.set('since', _loginTime);
+            } else if (_timeRange === 'today') {
+                params.set('date', todayStr);
+            } else if (_timeRange === 'week') {
+                const weekAgo = new Date(Date.now() - 7 * 86400000);
+                params.set('since', weekAgo.toISOString().replace('Z', ''));
+            } else if (_timeRange === 'date' && _pickedDate) {
+                params.set('date', _pickedDate);
+            }
+            // 'all' → no time param → backend returns up to limit
+
+            const res  = await fetch('/api/activity-log?' + params.toString());
+            const data = await res.json();
+            _allLogs = data.logs || [];
+            _isAdmin = data.is_admin || false;
+
+            updateBadge();
+            renderLogs();
+
+            const now = new Date();
+            document.getElementById('logLastUpdated').textContent =
+                'Updated ' + now.toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'});
+        } catch (e) {
+            console.error('Activity log fetch error:', e);
+        } finally {
+            if (showSpinner) {
+                document.getElementById('logRefreshBtn').classList.remove('spinning');
+            }
+        }
+    }
+
+    function setTimeRange(range, el, dateVal) {
+        _timeRange = range;
+        if (range === 'date' && dateVal) _pickedDate = dateVal;
+
+        // Update tab highlight (skip for date picker changes that don't have a btn)
+        if (el) {
+            document.querySelectorAll('.log-time-btn').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+        }
+
+        // Clear date picker if not using date mode
+        if (range !== 'date') document.getElementById('logDatePicker').value = '';
+
+        fetchActivityLog(true);
+    }
+
+    async function updateBadge() {
+        try {
+            const res = await fetch('/api/activity-log/count');
+            const data = await res.json();
+            const count = data.count || 0;
+
+            const badges = [document.getElementById('activityBadge'), document.getElementById('navActivityBadge')];
+            badges.forEach(b => {
+                if (!b) return;
+                if (count > 0) {
+                    b.style.display = 'inline-block';
+                    b.textContent = count > 99 ? '99+' : count;
+                } else {
+                    b.style.display = 'none';
+                }
+            });
+        } catch (e) {}
+    }
+
+    function renderLogs() {
+        const feed = document.getElementById('logFeed');
+        const searchTerm = (document.getElementById('logSearchInput').value || '').toLowerCase();
+
+        let logs = _allLogs.filter(log => {
+            const matchFilter = _activeFilter === 'all' || log.action === _activeFilter;
+            const matchSearch = !searchTerm ||
+                log.description.toLowerCase().includes(searchTerm) ||
+                log.module.toLowerCase().includes(searchTerm) ||
+                log.username.toLowerCase().includes(searchTerm);
+            return matchFilter && matchSearch;
+        });
+
+        if (logs.length === 0) {
+            feed.innerHTML = `
+                <div class="log-empty">
+                    <div class="log-empty-icon">📭</div>
+                    <div class="log-empty-text">No activity found</div>
+                </div>`;
+            return;
+        }
+
+        feed.innerHTML = logs.map(log => {
+            const badgeClass = 'badge-' + (log.action || 'UPDATE');
+            const color = avatarColor(log.username);
+            const initial = avatarInitial(log.username);
+
+            const userLine = _isAdmin
+                ? `<span class="log-username">${escHtml(log.username)}</span>`
+                : '';
+
+            return `<div class="log-entry">
+                <div class="log-avatar" style="background:${color};" title="${escHtml(log.username)}">${initial}</div>
+                <div class="log-entry-body">
+                    <div class="log-entry-top">
+                        <span class="log-action-badge ${badgeClass}">${escHtml(log.action)}</span>
+                        <span class="log-module-chip">${escHtml(log.module)}</span>
+                        ${userLine}
+                    </div>
+                    <div class="log-description">${escHtml(log.description)}</div>
+                    <div class="log-time">${escHtml(log.rel_time)} &nbsp;·&nbsp; ${escHtml(log.timestamp)}</div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function escHtml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    // Auto-refresh badge every 30 seconds
+    function startAutoRefresh() {
+        updateBadge(); // initial badge update on page load
+        _refreshTimer = setInterval(() => {
+            updateBadge();
+            if (_sidebarOpen) fetchActivityLog(false);
+        }, 30000);
+    }
+
+    document.addEventListener('DOMContentLoaded', startAutoRefresh);
+    </script>
+
+    {% endif %}
+    <!-- ── End Activity Log Sidebar ────────────────────────────── -->
 
     <main class="container my-4">
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -152,14 +462,9 @@
     <script>
         document.addEventListener('keydown', function (event) {
             if (event.key === 'Enter' && event.target.tagName === 'INPUT') {
-                // Allow explicit submission if the input is a submit button (unlikely for type='text' but good practice)
                 if (event.target.type === 'submit' || event.target.type === 'button') return;
-
-                // If existing listeners (like barcode scanner) handled it, they should call preventDefault()
-                // If they didn't, we stop the form submission here.
                 if (!event.defaultPrevented) {
                     event.preventDefault();
-                    // Optional: Move focus to next input? For now, just stop submission.
                 }
             }
         });

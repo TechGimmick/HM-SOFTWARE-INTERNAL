@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from app.extensions import db
 from app.models import Product, Supplier, Purchase, Sale, SaleItem, Customer, User, Warehouse, WarehouseStock, StockTransfer
+from app.activity_service import log_activity
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 import datetime
@@ -146,6 +147,8 @@ def inventory():
     except Exception as e:
         print(f"Inventory Error: {e}"); return render_template('inventory.html', alerts=[], summary=[], purchase_log=[])
 
+
+
 @inventory_bp.route("/purchase")
 @login_required
 def purchase():
@@ -242,6 +245,8 @@ def process_purchase():
             db.session.add(new_p)
             
         db.session.commit()
+        log_activity('CREATE', 'Purchase', f'New PO from {sup_name} — {sum(len(g) for g in supplier_groups.values())} item(s)', ref_type='Purchase')
+        db.session.commit()   # single atomic commit: PO + log together
         flash("Purchase(s) recorded as Pending.", "success")
         
     except Exception as e: 
@@ -393,7 +398,15 @@ def update_product_inline():
                 product.max_stock = val_int
             elif field == 'pack_size':
                 product.pack_size = val_int
-            db.session.commit()
+            field_labels = {
+                'quantity': 'Stock qty', 'min_stock': 'Min stock',
+                'max_stock': 'Max stock', 'pack_size': 'Pack size'
+            }
+            label = field_labels.get(field, field)
+            log_activity('UPDATE', 'Inventory',
+                         f'{label} changed to {val_int} for "{product.name}"',
+                         ref_id=product.id, ref_type='Product')
+            db.session.commit()   # single atomic commit: field change + log
             return jsonify({'success': True})
         except ValueError:
             return jsonify({'success': False, 'error': 'Invalid number'})
@@ -403,9 +416,13 @@ def update_product_inline():
 @login_required
 def add_supplier():
     name = request.form.get('supplier_name')
-    if name and not Supplier.query.filter_by(name=name).first(): 
-        db.session.add(Supplier(name=name))
-        db.session.commit()
+    if name and not Supplier.query.filter_by(name=name).first():
+        supplier = Supplier(name=name)
+        db.session.add(supplier)
+        db.session.flush()   # get ID before commit
+        log_activity('CREATE', 'Inventory', f'New supplier "{name}" added',
+                     ref_id=supplier.id, ref_type='Supplier')
+        db.session.commit()  # single atomic commit: supplier + log together
         flash(f"Supplier '{name}' added.", "success")
     return redirect(url_for('inventory.purchase'))
 
@@ -448,7 +465,8 @@ def add_product_to_supplier():
                 supplier_id=supplier_id, quantity=0
             )
             db.session.add(new_prod)
-            db.session.commit()
+            log_activity('CREATE', 'Inventory', f'New product "{sales_name}" added', ref_id=new_prod.id, ref_type='Product')
+            db.session.commit()   # single atomic commit: product + log together
             flash(f"Product '{sales_name}' added.", "success")
             return redirect(url_for('inventory.purchase', selected_supplier=supplier_id))
             
@@ -528,7 +546,8 @@ def update_purchase_status():
             purchase.status = 'Pending'
             purchase.received_date = None
             purchase.received_details = None
-            db.session.commit()
+            log_activity('UPDATE', 'Purchase', f'PO #{pid} reverted to Pending', ref_id=int(pid) if pid else None, ref_type='Purchase')
+            db.session.commit()   # single atomic commit: status + log together
             flash("Purchase reverted to Pending.", "success")
             
         elif new_status_req == 'Received':
@@ -619,8 +638,10 @@ def update_purchase_status():
                             except Exception:
                                 pass
                                 
-            db.session.commit()
-            flash(f"Purchase updated to {purchase.status}.", "success")
+            status_snap = purchase.status   # snapshot before commit expires the object
+            log_activity('UPDATE', 'Purchase', f'PO #{pid} updated to {status_snap}', ref_id=int(pid) if pid else None, ref_type='Purchase')
+            db.session.commit()   # single atomic commit: status + log together
+            flash(f"Purchase updated to {status_snap}.", "success")
             
     except Exception as e:
         db.session.rollback()
@@ -640,8 +661,13 @@ def add_warehouse():
         name = request.form.get('warehouse_name')
         location = request.form.get('warehouse_location')
         if name and not Warehouse.query.filter_by(name=name).first():
-            db.session.add(Warehouse(name=name, location=location))
-            db.session.commit()
+            wh = Warehouse(name=name, location=location)
+            db.session.add(wh)
+            db.session.flush()   # get ID before commit
+            log_activity('CREATE', 'Inventory',
+                         f'New warehouse "{name}" added' + (f' ({location})' if location else ''),
+                         ref_id=wh.id, ref_type='Warehouse')
+            db.session.commit()  # single atomic commit: warehouse + log
             flash(f"Warehouse '{name}' added successfully.", "success")
         else:
             flash("Warehouse name already exists or invalid.", "danger")
@@ -704,8 +730,16 @@ def transfer_stock():
             reference=request.form.get('reference', '')
         )
         db.session.add(transfer)
-        
-        db.session.commit()
+
+        # Build log message while objects are still in-session (before commit)
+        product_obj = db.session.get(Product, product_id)
+        from_wh_obj = db.session.get(Warehouse, from_wh_id)
+        to_wh_obj   = db.session.get(Warehouse, to_wh_id)
+        p_name   = product_obj.name if product_obj else str(product_id)
+        from_name = from_wh_obj.name if from_wh_obj else '?'
+        to_name   = to_wh_obj.name   if to_wh_obj   else '?'
+        log_activity('UPDATE', 'Inventory', f'Stock transfer: {qty}× {p_name} from {from_name} → {to_name}', ref_type='StockTransfer')
+        db.session.commit()   # single atomic commit: transfer + log together
         flash(f"Successfully transferred {qty} units.", "success")
     except Exception as e:
         db.session.rollback()
@@ -743,9 +777,13 @@ def edit_warehouse():
         
         warehouse = db.session.get(Warehouse, wh_id)
         if warehouse:
+            old_name = warehouse.name
             warehouse.name = name
             warehouse.location = location
-            db.session.commit()
+            log_activity('UPDATE', 'Inventory',
+                         f'Warehouse "{old_name}" renamed/updated to "{name}"' + (f' ({location})' if location else ''),
+                         ref_id=int(wh_id), ref_type='Warehouse')
+            db.session.commit()  # single atomic commit: warehouse update + log
             flash(f"Warehouse updated successfully.", "success")
         else:
             flash("Warehouse not found.", "danger")

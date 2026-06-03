@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, jsonify, redirect, url_fo
 from flask_login import login_required, current_user
 from app.extensions import db
 from app.models import Sale, TallyBill, CashBookEntry, CashBookDailyBalance, SalePayment
+from app.activity_service import log_activity
 from datetime import datetime, timedelta
 from sqlalchemy import func
 
@@ -287,7 +288,11 @@ def add_expense():
         created_by  = current_user.username,
     )
     db.session.add(entry)
-    db.session.commit()
+    db.session.flush()    # get entry.id without committing — stays in same transaction
+    log_activity(entry_type.upper(), 'CashBook',
+                 f'{entry_type}: ₹{amount:.0f} — {description} ({mode})',
+                 ref_id=entry.id, ref_type='CashBookEntry')
+    db.session.commit()   # single atomic commit: entry + log together
     return jsonify({'success': True, 'id': entry.id})
 
 
@@ -302,8 +307,13 @@ def delete_expense(entry_id):
     if not entry:
         return jsonify({'error': 'Entry not found'}), 404
 
+    # Snapshot description before delete — object expires after commit
+    entry_desc = entry.description
     db.session.delete(entry)
-    db.session.commit()
+    log_activity('DELETE', 'CashBook',
+                 f'Deleted cash entry #{entry_id}: "{entry_desc}"',
+                 ref_id=entry_id, ref_type='CashBookEntry')
+    db.session.commit()   # single atomic commit: delete + log together
     return jsonify({'success': True})
 
 
@@ -339,6 +349,9 @@ def save_daily_balance():
         )
         db.session.add(record)
     
-    db.session.commit()
+    log_activity('UPDATE', 'CashBook',
+                 f'Daily balance saved for {date_str}: Opening ₹{opening_cash:.0f}, Closing ₹{closing_cash:.0f}',
+                 ref_type='CashBookDailyBalance')
+    db.session.commit()   # single atomic commit: balance + log together
     return jsonify({'success': True})
 

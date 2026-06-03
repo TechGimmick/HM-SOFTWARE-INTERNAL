@@ -1,7 +1,8 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
-from flask_login import login_required
+from flask_login import login_required, current_user
 from app.extensions import db
 from app.models import TallyBill, TallyBillItem, Product, Warehouse, WarehouseStock
+from app.activity_service import log_activity
 from datetime import datetime, timedelta
 from sqlalchemy import func
 from collections import defaultdict
@@ -201,7 +202,9 @@ def save_tally():
                     ws = WarehouseStock.query.filter_by(warehouse_id=warehouse_id, product_id=product.id).first()
                     if ws: ws.quantity -= p_qty
             
-        db.session.commit()
+        # log_activity BEFORE commit so audit log is atomic with the bill creation
+        log_activity('CREATE', 'Tally', f'New Tally Bill #{invoice_number} — ₹{grand_total:.0f}', ref_id=new_tally.id, ref_type='TallyBill')
+        db.session.commit()   # single atomic commit: bill + log together
         flash(f"Tally Invoice #{invoice_number} successfully added and inventory deducted.", "success")
         
     except Exception as e:
@@ -297,8 +300,11 @@ def update_tally_status():
 
                 flash(f"Tally #{tally.invoice_number} payment status updated.", "success")
                 
-            db.session.commit()
-            
+            # log_activity BEFORE commit so status change + audit log are atomic
+            log_activity('UPDATE' if status_type == 'order' else 'PAYMENT', 'Tally',
+                         f'Tally #{tally.invoice_number} {status_type} status updated',
+                         ref_id=tally.id, ref_type='TallyBill')
+            db.session.commit()   # single atomic commit: status + log together
             
     except Exception as e:
         db.session.rollback()
@@ -368,9 +374,14 @@ def delete_tally_bill(tally_id):
                             ws = WarehouseStock.query.filter_by(warehouse_id=w_id, product_id=product.id).first()
                             if ws: ws.quantity += item.qty
             
+            # Snapshot BEFORE delete — SQLAlchemy expires all attributes after commit
+            invoice_snap = tally.invoice_number
+            tally_id_snap = tally.id
             db.session.delete(tally)
-            db.session.commit()
-            flash(f"Tally Bill #{tally.invoice_number} deleted permanently.", "warning")
+            log_activity('DELETE', 'Tally', f'Deleted Tally Bill #{invoice_snap}',
+                         ref_id=tally_id_snap, ref_type='TallyBill')
+            db.session.commit()   # single atomic commit: delete + log together
+            flash(f"Tally Bill #{invoice_snap} deleted permanently.", "warning")
     except Exception as e:
         db.session.rollback()
         flash(f"Error deleting Tally bill: {e}", "danger")

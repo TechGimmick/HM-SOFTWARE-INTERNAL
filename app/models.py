@@ -93,7 +93,7 @@ class SalePayment(db.Model):
     amount_online = db.Column(db.Float, default=0.0, nullable=False)
     payment_date = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
 
-    sale = db.relationship('Sale', backref=db.backref('payments', lazy=True, cascade="all, delete-orphan")) 
+    sale = db.relationship('Sale', backref=db.backref('payments', lazy=True, cascade="all, delete-orphan"))
 
 class Purchase(db.Model):
     __tablename__ = 'purchases'
@@ -175,6 +175,8 @@ class WarehouseStock(db.Model):
     product = db.relationship('Product', backref=db.backref('warehouse_stocks', lazy=True, cascade="all, delete-orphan"))
 
 
+
+
 class StockTransfer(db.Model):
     __tablename__ = 'stock_transfers'
     id = db.Column(db.Integer, primary_key=True)
@@ -207,7 +209,6 @@ class CashBookEntry(db.Model):
     created_at   = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
 
-
 class CashBookDailyBalance(db.Model):
     """
     Tracks daily reconciliation balances (opening cash, user-entered closing cash).
@@ -219,3 +220,25 @@ class CashBookDailyBalance(db.Model):
     closing_cash = db.Column(db.Float,   default=0.0, nullable=False)
     created_at   = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     updated_at   = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+class ActivityLog(db.Model):
+    """
+    Audit trail — every meaningful user action is recorded here.
+    Admins can view all entries; other users see only their own.
+    """
+    __tablename__ = 'activity_logs'
+    id          = db.Column(db.Integer,  primary_key=True)
+    timestamp   = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True, nullable=False)
+    user_id     = db.Column(db.Integer,  db.ForeignKey('users.id'), nullable=True)
+    username    = db.Column(db.String(50),  nullable=True)   # cached for fast reads
+    action      = db.Column(db.String(50),  nullable=False)  # CREATE | UPDATE | DELETE | PAYMENT | LOGIN | LOGOUT
+    module      = db.Column(db.String(50),  nullable=False)  # Sales | Purchase | Inventory | CashBook | Auth
+    description = db.Column(db.String(500), nullable=False)  # human-readable summary
+    ref_id      = db.Column(db.Integer,  nullable=True)      # related record ID
+    ref_type    = db.Column(db.String(50),  nullable=True)   # e.g. 'Sale', 'Purchase', 'Product'
+    extra       = db.Column(db.Text,     nullable=True)      # JSON blob for additional detail
+
+    user = db.relationship('User', backref=db.backref('activity_logs', lazy=True))
+
+
