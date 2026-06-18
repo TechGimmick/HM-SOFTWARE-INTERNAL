@@ -27,6 +27,16 @@ def dashboard_data():
     purchases_data = []
     today_revenue = 0.0
     today_pending_count = 0
+    store_retail_count = 0
+    store_invoice_count = 0
+
+    if current_user.role == 'store':
+        try:
+            from app.models import RetailOrder, SupplierOrder
+            store_retail_count = RetailOrder.query.filter_by(status='Pending').count()
+            store_invoice_count = SupplierOrder.query.filter(SupplierOrder.status.in_(['Draft', 'Packing', 'Packed'])).count()
+        except Exception as e:
+            print(f"Store Data Error: {e}")
 
     try:
         recent_sales_objs = Sale.query.order_by(Sale.date.desc()).limit(5).all()
@@ -83,6 +93,8 @@ def dashboard_data():
         'today_stats': {
             'revenue': today_revenue,
             'pending_bills': today_pending_count,
+            'store_retail_count': store_retail_count,
+            'store_invoice_count': store_invoice_count
         },
         'role': current_user.role
     })
