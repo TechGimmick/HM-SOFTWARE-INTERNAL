@@ -1,0 +1,362 @@
+{% extends "_layout.html" %}
+
+{% block content %}
+
+
+<div class="queue-header">
+    <div class="queue-title">
+        <span style="font-size:2rem;">📦</span>
+        <div>
+            <h1>Retail Order Queue</h1>
+            <small class="text-muted">Worker screen — packing view only</small>
+        </div>
+    </div>
+    <div class="queue-meta">
+        <span id="lastRefreshTime" style="font-size:0.8rem; color:#94a3b8;">—</span>
+    </div>
+</div>
+
+{% if current_user.role not in ['admin', 'sales', 'store'] %}
+<div class="role-warning">
+    ℹ️ You are viewing as <strong>{{ current_user.role }}</strong>. You can mark orders as <strong>Done</strong> once they are Packaging.
+</div>
+{% endif %}
+
+<div class="queue-toolbar">
+    <button onclick="loadQueue(true)" class="btn btn-primary btn-sm" id="refreshBtn">↻ Refresh Now</button>
+    <span style="font-size:0.82rem; color:#64748b;" id="orderCountMeta"></span>
+</div>
+
+<!-- Status / error banner -->
+<div id="queueStatusBanner"></div>
+
+<div class="kanban-board" id="kanbanBoard">
+    <div class="kanban-col col-pending">
+        <div class="kanban-col-header">
+            <span>⏳ Pending</span>
+            <span class="col-badge" id="badge-Pending">0</span>
+        </div>
+        <div class="kanban-cards" id="col-Pending">
+            <div class="empty-col"><div class="empty-icon">✅</div>All clear</div>
+        </div>
+    </div>
+    <div class="kanban-col col-packaging">
+        <div class="kanban-col-header">
+            <span>📦 Packaging</span>
+            <span class="col-badge" id="badge-Packaging">0</span>
+        </div>
+        <div class="kanban-cards" id="col-Packaging">
+            <div class="empty-col"><div class="empty-icon">📭</div>Nothing here</div>
+        </div>
+    </div>
+    <div class="kanban-col col-done">
+        <div class="kanban-col-header">
+            <span>✅ Done</span>
+            <span class="col-badge" id="badge-Done">0</span>
+        </div>
+        <div class="kanban-cards" id="col-Done">
+            <div class="empty-col"><div class="empty-icon">📭</div>Nothing here</div>
+        </div>
+    </div>
+</div>
+
+<!-- Order Detail Sidebar (styled by existing CSS in retail_queue.html) -->
+<div id="orderSidebar">
+    <div class="sidebar-header">
+        <h2 id="sidebarOrderTitle">Order Details</h2>
+        <button class="sidebar-close-btn" onclick="closeSidebar()">✕</button>
+    </div>
+    <div class="sidebar-meta" id="sidebarOrderMeta"></div>
+    <div class="sidebar-body">
+        <div id="sidebarItemsList">
+            <!-- Will be populated dynamically -->
+        </div>
+    </div>
+</div>
+
+<script>
+const COLUMNS     = ['Pending', 'Packaging', 'Done'];   // Sent orders are deleted, never shown
+const USER_ROLE   = "{{ current_user.role }}";
+const STATUS_URL  = "{{ url_for('orders.retail_advance_status', order_id=0) }}".replace('/0/status', '/');
+const QUEUE_URL   = "{{ url_for('orders.retail_queue_data') }}";
+const REFRESH_SEC = 8;
+
+let _knownOrders   = {};
+let _loadedOrders  = {}; // Storing full order objects
+let _transitioning = {};
+let _checkedItems  = {}; // Storing checked item state for the sidebar
+
+/* === Banner helper === */
+function showBanner(msg, type) {
+    const el = document.getElementById('queueStatusBanner');
+    el.className = 'banner-' + type;
+    el.textContent = msg;
+    el.style.display = 'block';
+    if (type === 'ok') setTimeout(function() { el.style.display = 'none'; }, 3000);
+}
+function hideBanner() {
+    document.getElementById('queueStatusBanner').style.display = 'none';
+}
+
+/* === Main fetch & render === */
+async function loadQueue(manual) {
+    if (manual) {
+        const btn = document.getElementById('refreshBtn');
+        if (btn) btn.textContent = '…';
+    }
+
+    let res;
+    try {
+        res = await fetch(QUEUE_URL, {
+            credentials: 'same-origin',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            cache: 'no-store',
+        });
+    } catch (networkErr) {
+        showBanner('Network error — cannot reach server. Will retry automatically.', 'warn');
+        console.error('[Queue] Network error:', networkErr);
+        if (manual) { var btn2 = document.getElementById('refreshBtn'); if (btn2) btn2.textContent = '↻ Refresh Now'; }
+        return;
+    }
+
+    if (res.status === 401) {
+        showBanner('Session expired. Please reload the page to log back in.', 'error');
+        var rb = document.getElementById('refreshBtn');
+        if (rb) { rb.textContent = 'Reload Page'; rb.onclick = function(){ location.reload(); }; }
+        return;
+    }
+
+    if (!res.ok) {
+        var bodyErr = await res.text().catch(function(){ return ''; });
+        showBanner('Server error ' + res.status + '. Check Flask logs.', 'error');
+        console.error('[Queue] HTTP error:', res.status, bodyErr.slice(0,400));
+        if (manual) { var btn3 = document.getElementById('refreshBtn'); if (btn3) btn3.textContent = '↻ Refresh Now'; }
+        return;
+    }
+
+    var data;
+    try {
+        data = await res.json();
+    } catch (parseErr) {
+        showBanner('Server returned non-JSON. Session may have expired — try reloading.', 'error');
+        console.error('[Queue] JSON parse error:', parseErr);
+        if (manual) { var btn4 = document.getElementById('refreshBtn'); if (btn4) btn4.textContent = '↻ Refresh Now'; }
+        return;
+    }
+
+    if (data && data.error) {
+        showBanner(data.message || data.error, 'error');
+        if (manual) { var btn5 = document.getElementById('refreshBtn'); if (btn5) btn5.textContent = '↻ Refresh Now'; }
+        return;
+    }
+
+    /* ── Render columns ─────────────────────────────────────────────── */
+    var newSnapshot = {};
+    var total = 0;
+
+    COLUMNS.forEach(function(col) {
+        var cards = (data.orders && data.orders[col]) ? data.orders[col] : [];
+        var colEl = document.getElementById('col-' + col);
+        var badge = document.getElementById('badge-' + col);
+        if (!colEl || !badge) return;
+
+        badge.textContent = cards.length;
+        total += cards.length;
+
+        if (cards.length === 0) {
+            colEl.innerHTML = col === 'Pending'
+                ? '<div class="empty-col"><div class="empty-icon">✅</div>All clear</div>'
+                : '<div class="empty-col"><div class="empty-icon">📭</div>Nothing here</div>';
+            return;
+        }
+
+        colEl.innerHTML = cards.map(function(order) { return buildCard(order, col); }).join('');
+        cards.forEach(function(order) {
+            newSnapshot[order.id] = order.status;
+            _loadedOrders[order.id] = order; // save full order data
+        });
+
+        // Flash cards that moved columns since last poll
+        cards.forEach(function(order) {
+            if (_knownOrders[order.id] && _knownOrders[order.id] !== order.status) {
+                var el = document.getElementById('card-' + order.id);
+                if (el) {
+                    el.classList.add('flash-updated');
+                    setTimeout(function() { el.classList.remove('flash-updated'); }, 700);
+                }
+            }
+        });
+    });
+
+    _knownOrders = newSnapshot;
+
+    // If sidebar is open, update its content with fresh data
+    if (window._currentSidebarOrderId) {
+        const currentOrder = _loadedOrders[window._currentSidebarOrderId];
+        if (currentOrder) {
+            updateSidebarUI(currentOrder);
+        } else {
+            // Order might have been completed/deleted (e.g. status Sent)
+            closeSidebar();
+        }
+    }
+
+    var now = new Date();
+    var timeEl = document.getElementById('lastRefreshTime');
+    if (timeEl) timeEl.textContent = 'Updated ' + now.toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    var metaEl = document.getElementById('orderCountMeta');
+    if (metaEl) metaEl.textContent = total + ' active order' + (total !== 1 ? 's' : '') + ' · Server: ' + data.server_time;
+
+    hideBanner();
+    if (manual) { var btn6 = document.getElementById('refreshBtn'); if (btn6) { btn6.textContent = '↻ Refresh Now'; btn6.onclick = function(){ loadQueue(true); }; } }
+}
+
+/* === Card builder === */
+function buildCard(order, status) {
+    var actionBtn = '';
+    if (status === 'Pending' && (USER_ROLE === 'admin' || USER_ROLE === 'sales' || USER_ROLE === 'store')) {
+        actionBtn = '<button class="card-action-btn btn-start-packaging" onclick="event.stopPropagation(); advanceStatus(' + order.id + ', this)">&#9654; Start Packaging</button>';
+    } else if (status === 'Packaging') {
+        actionBtn = '<button class="card-action-btn btn-mark-done" onclick="event.stopPropagation(); advanceStatus(' + order.id + ', this)">&#10003; Mark Done</button>';
+    } else if (status === 'Done' && (USER_ROLE === 'admin' || USER_ROLE === 'sales' || USER_ROLE === 'store')) {
+        actionBtn = '<button class="card-action-btn btn-mark-sent" onclick="event.stopPropagation(); advanceStatus(' + order.id + ', this)">📦 Sent to Sales Guy</button>';
+    }
+
+    var itemCount = order.items ? order.items.length : 0;
+    var itemCountText = itemCount === 1 ? '1 item' : itemCount + ' items';
+
+    return '<div class="order-card" id="card-' + order.id + '" style="cursor:pointer;" onclick="openSidebar(' + order.id + ')">' +
+           '<div class="card-header-row" style="margin-bottom: 4px;">' +
+           '<span class="order-number order-number-link" title="Click to view full details">' + escHtml(order.order_number) + '</span>' +
+           '<span class="card-time">' + escHtml(order.created_at) + '</span>' +
+           '</div>' +
+           '<div style="font-size: 0.8rem; color: #64748b; margin-bottom: 12px;">' + itemCountText + ' &middot; Click for details</div>' +
+           actionBtn +
+           '</div>';
+}
+
+/* === Status advance === */
+async function advanceStatus(orderId, btn) {
+    if (_transitioning[orderId]) return;
+    _transitioning[orderId] = true;
+
+    var originalText = btn.textContent;
+    btn.textContent = '…';
+    btn.disabled = true;
+
+    try {
+        var url = STATUS_URL + orderId + '/status';
+        var res = await fetch(url, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            cache: 'no-store',
+        });
+
+        if (res.status === 401) {
+            showBanner('Session expired. Please reload the page.', 'error');
+            btn.textContent = originalText;
+            btn.disabled = false;
+            delete _transitioning[orderId];
+            return;
+        }
+
+        var data = await res.json();
+
+        if (data.success) {
+            // If the order was dispatched to the sales guy or fully completed, animate it out
+            if (data.deleted || data.new_status === 'SentToSalesGuy') {
+                var card = document.getElementById('card-' + orderId);
+                if (card) {
+                    card.classList.add('fly-out');
+                    setTimeout(function() { loadQueue(false); }, 520);
+                } else {
+                    loadQueue(false);
+                }
+            } else {
+                loadQueue(false);
+            }
+        } else {
+            alert(data.error || 'Could not update status.');
+            btn.textContent = originalText;
+            btn.disabled = false;
+        }
+    } catch (e) {
+        alert('Network error. Please try again.');
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
+    delete _transitioning[orderId];
+}
+
+
+
+function escHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function openSidebar(orderId) {
+    const order = _loadedOrders[orderId];
+    if (!order) return;
+    window._currentSidebarOrderId = orderId;
+    updateSidebarUI(order);
+    document.getElementById('orderSidebar').classList.add('open');
+}
+
+function updateSidebarUI(order) {
+    document.getElementById('sidebarOrderTitle').textContent = order.order_number;
+    document.getElementById('sidebarOrderMeta').textContent = 'Status: ' + order.status + ' | Created: ' + order.created_at;
+    
+    const container = document.getElementById('sidebarItemsList');
+    container.innerHTML = order.items.map(function(it, index) {
+        const key = order.id + '-' + index;
+        const cbId = 'cb_' + key;
+        const isChecked = _checkedItems[key] ? 'checked' : '';
+        const nameStyle = _checkedItems[key] ? 'text-decoration: line-through; color: #94a3b8;' : '';
+        
+        return '<label class="sidebar-item-row" for="' + cbId + '" style="cursor: pointer; display: flex; align-items: center; gap: 12px; padding: 12px; margin-bottom: 8px; border-radius: 8px; background: #f8fafc; border: 1px solid #e2e8f0; transition: background 0.2s;">' +
+               '<input type="checkbox" id="' + cbId + '" class="item-checkbox" data-key="' + key + '" ' + isChecked + ' style="width: 20px; height: 20px; accent-color: #0ea5e9; cursor: pointer; flex-shrink: 0;">' +
+               '<span class="sidebar-item-name" style="flex: 1; font-weight: 600; color: #1e3a5f; transition: color 0.2s; ' + nameStyle + '">' + escHtml(it.name) + '</span>' +
+               '<span class="sidebar-item-qty" style="background: #0ea5e9; color: white; padding: 4px 10px; border-radius: 999px; font-weight: 700; font-size: 0.85rem;">' + it.qty + (it.unit ? ' ' + escHtml(it.unit) : '') + '</span>' +
+               '</label>';
+    }).join('');
+
+    // Add event listeners for strikethrough
+    const checkboxes = container.querySelectorAll('.item-checkbox');
+    checkboxes.forEach(function(cb) {
+        cb.addEventListener('change', function() {
+            const key = this.getAttribute('data-key');
+            _checkedItems[key] = this.checked;
+            const nameSpan = this.nextElementSibling;
+            if (this.checked) {
+                nameSpan.style.textDecoration = 'line-through';
+                nameSpan.style.color = '#94a3b8';
+            } else {
+                nameSpan.style.textDecoration = 'none';
+                nameSpan.style.color = '#1e3a5f';
+            }
+        });
+    });
+}
+
+function closeSidebar() {
+    document.getElementById('orderSidebar').classList.remove('open');
+    window._currentSidebarOrderId = null;
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() { 
+        loadQueue(false); 
+        setInterval(function() { loadQueue(false); }, 120000); // 2 minutes auto-refresh
+    });
+} else {
+    loadQueue(false);
+    setInterval(function() { loadQueue(false); }, 120000); // 2 minutes auto-refresh
+}
+</script>
+{% endblock %}

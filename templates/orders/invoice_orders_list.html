@@ -1,0 +1,251 @@
+{% extends "_layout.html" %}
+
+{% block content %}
+
+
+<div class="ob-page-header">
+    <h1>📒 Orders Book</h1>
+    <div style="display: flex; gap: 10px; align-items: center;">
+        <button class="btn btn-outline-secondary" onclick="window.location.reload()" style="background:#fff;">↻ Refresh</button>
+        {% if current_user.role in ('admin', 'sales', 'store') %}
+        <button class="btn btn-primary" onclick="document.getElementById('createForm').scrollIntoView({behavior:'smooth'})">
+            + New Order
+        </button>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ── Orders Table ──────────────────────────────────────────────────────── -->
+<div class="ob-table-card">
+    {% if orders %}
+    <div style="overflow-x:auto;">
+    <table class="ob-table">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>INV No.</th>
+                <th>Party / Customer</th>
+                <th>Mode</th>
+                <th>Place of Delivery</th>
+                <th>Dispatch Date</th>
+                <th>Status</th>
+                <th>Last Updated</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for so in orders %}
+            <tr>
+                <td>
+                    <strong style="color:#1e3a5f;">#{{ so.id }}</strong>
+                    {% if so.is_immediate %}
+                    <br><span class="urgent-pill">🔴 URGENT</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if so.invoice_number %}
+                    <span style="font-weight:700; color:#1e3a5f;">{{ so.invoice_number }}</span>
+                    {% else %}
+                    <span style="color:#cbd5e1;">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <strong>{{ so.supplier_name }}</strong>
+                    {% if so.notes %}
+                    <div style="font-size:0.78rem; color:#64748b; margin-top:2px;" title="{{ so.notes }}">
+                        📝 {{ so.notes[:50] }}{% if so.notes|length > 50 %}…{% endif %}
+                    </div>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if so.mode_of_dispatch %}
+                    <span style="font-size:0.82rem; color:#374151;">{{ so.mode_of_dispatch }}</span>
+                    {% if so.transport_name %}
+                    <div style="font-size:0.76rem; color:#64748b;">{{ so.transport_name }}</div>
+                    {% endif %}
+                    {% else %}
+                    <span style="color:#cbd5e1;">—</span>
+                    {% endif %}
+                </td>
+                <td style="font-size:0.83rem;">
+                    {{ so.place_of_delivery or '—' }}
+                </td>
+                <td style="font-size:0.82rem; white-space:nowrap;">
+                    {% if so.dispatch_date %}
+                    <span style="color:{% if so.is_immediate %}#dc2626{% else %}#374151{% endif %}; font-weight:{% if so.is_immediate %}700{% else %}400{% endif %};">
+                        {{ so.dispatch_date.strftime('%d %b %Y') }}
+                    </span>
+                    {% else %}
+                    <span style="color:#cbd5e1;">Not set</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <span class="ob-badge badge-{{ so.status.lower() }}">{{ so.status }}</span>
+                </td>
+                <td style="font-size:0.8rem; color:#94a3b8; white-space:nowrap;">
+                    {{ (so.updated_at or so.created_at).strftime('%d %b, %H:%M') if (so.updated_at or so.created_at) else '—' }}
+                </td>
+                <td>
+                    <a href="{{ url_for('orders.supplier_detail', order_id=so.id) }}"
+                       class="btn btn-sm btn-primary">View</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <div class="ob-empty">
+        <span class="empty-icon">📭</span>
+        No orders in the book yet. Create one below.
+    </div>
+    {% endif %}
+</div>
+
+<!-- ── Create New Order Form ─────────────────────────────────────────────── -->
+{% if current_user.role in ('admin', 'sales', 'store') %}
+<div class="ob-create-card" id="createForm">
+    <h2>📝 Create New Order</h2>
+    <form action="{{ url_for('orders.supplier_create') }}" method="POST" enctype="multipart/form-data">
+
+        <div class="form-grid-2">
+            <div class="form-group">
+                <label>INV Number</label>
+                <input type="text" name="invoice_number" placeholder="e.g. INV-2025-001">
+            </div>
+            <div class="form-group">
+                <label>Party / Customer Name <span style="color:red;">*</span></label>
+                <input type="text" name="supplier_name" placeholder="e.g. ABC Traders" required autocomplete="off">
+            </div>
+        </div>
+
+        <div class="form-grid-3">
+            <div class="form-group">
+                <label>Planned Dispatch Date & Time</label>
+                <input type="datetime-local" name="dispatch_date">
+            </div>
+            <div class="form-group">
+                <label>Mode of Dispatch</label>
+                <select name="mode_of_dispatch" id="modeSelect" onchange="toggleTransport()">
+                    <option value="">— Select —</option>
+                    <option value="Transport">Transport</option>
+                    <option value="Porter">Porter</option>
+                    <option value="Self">Self / Own Vehicle</option>
+                    <option value="Courier">Courier</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Place of Delivery</label>
+                <input type="text" name="place_of_delivery" placeholder="City / Address">
+            </div>
+        </div>
+
+        <!-- Transport sub-fields -->
+        <div id="transportFields">
+            <div class="form-grid-2" style="margin-bottom:1rem;">
+                <div class="form-group">
+                    <label>Transporter Name</label>
+                    <input type="text" name="transport_name" placeholder="e.g. Mahindra Logistics">
+                </div>
+                <div class="form-group">
+                    <label>Transport Destination</label>
+                    <input type="text" name="transport_destination" placeholder="e.g. Delhi Hub">
+                </div>
+            </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:1rem;">
+            <label>Instructions / Packing Guide <small style="color:#94a3b8;">(visible to warehouse)</small></label>
+            <textarea name="notes" rows="2"
+                      placeholder="e.g. Handle fragile items, pack in box #3, deliver before 5 PM"></textarea>
+        </div>
+
+        <!-- Immediate toggle -->
+        <div style="margin-bottom:1.25rem;">
+            <label class="immediate-toggle-wrap" for="is_immediate_check">
+                <input type="checkbox" id="is_immediate_check" name="is_immediate" value="1">
+                <span>🔴 Mark as IMMEDIATE / URGENT — viewers will see a red alert on this order</span>
+            </label>
+        </div>
+
+        <hr class="section-divider">
+
+        <!-- Invoice Photo / PDF Upload -->
+        <div class="invoice-upload-area" id="invoiceUploadArea">
+            <div class="upload-header">
+                <span style="font-size:1.1rem;">📄</span>
+                <strong>Invoice / Order Photo</strong>
+                <span style="font-size:0.78rem; color:#94a3b8; font-weight:400;">Optional — upload photo, scan, or PDF of the invoice</span>
+            </div>
+            <!-- Drop zone -->
+            <label class="upload-dropzone" for="invoice_photo_input" id="dropzone">
+                <div class="dropzone-inner" id="dropzoneInner">
+                    <span style="font-size:2.5rem;">📷</span>
+                    <span class="dz-text">Tap to upload or take a photo</span>
+                    <span style="font-size:0.78rem; color:#94a3b8;">JPG, PNG, PDF supported</span>
+                </div>
+                <img id="invoicePreview" src="" alt="Preview" class="upload-preview" style="display:none;">
+            </label>
+            <input type="file" id="invoice_photo_input" name="invoice_photo"
+                   accept="image/*,application/pdf"
+                   capture="environment"
+                   style="display:none;"
+                   onchange="previewInvoice(this)">
+            <div id="fileNameTag" style="display:none; margin-top:6px; font-size:0.8rem; color:#64748b; text-align:center;"></div>
+            <button type="button" onclick="document.getElementById('invoice_photo_input').click()"
+                    class="upload-camera-btn" style="margin-top:8px;">
+                📷 Open Camera / Choose File
+            </button>
+        </div>
+
+        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:1rem;">
+            <a href="{{ url_for('orders.supplier_list') }}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">Create Order</button>
+        </div>
+    </form>
+</div>
+{% endif %}
+
+<datalist id="product-datalist">
+    {% for p in products %}<option value="{{ p.name }}">{% endfor %}
+</datalist>
+
+<script>
+function toggleTransport() {
+    const mode = document.getElementById('modeSelect').value;
+    document.getElementById('transportFields').style.display = (mode === 'Transport') ? 'block' : 'none';
+}
+
+function previewInvoice(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const tag = document.getElementById('fileNameTag');
+    tag.textContent = '📎 ' + file.name;
+    tag.style.display = 'block';
+    if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const preview = document.getElementById('invoicePreview');
+            const inner  = document.getElementById('dropzoneInner');
+            preview.src = e.target.result;
+            preview.style.display = 'block';
+            inner.style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+    } else {
+        // PDF — just show file name, no image preview
+        const inner = document.getElementById('dropzoneInner');
+        inner.innerHTML = '<span style="font-size:2rem;">📄</span><span style="font-weight:700;color:#1e3a5f;">' + file.name + '</span><span style="font-size:0.78rem;color:#22c55e;">PDF ready to upload</span>';
+    }
+}
+
+function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// 30-minute auto-refresh for the Orders Book page
+setTimeout(function() {
+    window.location.reload();
+}, 1800000); // 1800000 ms = 30 minutes
+</script>
+{% endblock %}

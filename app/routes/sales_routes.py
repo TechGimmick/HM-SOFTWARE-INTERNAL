@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session, make_response
 from flask_login import login_required, current_user
 from app.extensions import db
-from app.models import Sale, SaleItem, Product, Customer, Warehouse, WarehouseStock, SalePayment
+from app.models import Sale, SaleItem, Product, Customer, Warehouse, WarehouseStock, SalePayment, RetailOrder, RetailOrderItem
 from app.activity_service import log_activity
 from sqlalchemy import func, case
 import json
@@ -249,6 +249,45 @@ def process_sale():
         new_sale.grand_total = running_total
         log_activity('CREATE', 'Sales', f'New sale #{new_sale.id} for {client_name} — ₹{running_total:.0f}', ref_id=new_sale.id, ref_type='Sale')
         db.session.commit()   # single atomic commit: sale + log together
+
+        # ── Auto-create RetailOrder linked to this sale ────────────────────
+        try:
+            # Resolve customer phone from the Customer table
+            base_client = client_name.split(' - ')[0].strip()
+            cust_obj = Customer.query.filter(func.lower(Customer.name) == func.lower(base_client)).first()
+            cust_phone = cust_obj.phone if cust_obj else None
+
+            ro = RetailOrder(
+                sale_id=new_sale.id,
+                order_number=f'ORD-{new_sale.id:05d}',
+                customer_name=base_client,
+                customer_phone=cust_phone,
+                status='Pending',
+                created_by_id=current_user.id,
+                created_by_name=current_user.username,
+            )
+            db.session.add(ro)
+            db.session.flush()   # get ro.id
+
+            for item in cart_items:
+                qty = int(item.get('qty', 0))
+                if qty <= 0:
+                    continue
+                final_name = item['name']
+                if item.get('variation'):
+                    final_name = f"{item['name']} - {item['variation']}"
+                db.session.add(RetailOrderItem(
+                    order_id=ro.id,
+                    product_name=final_name,
+                    qty=qty,
+                    unit=item.get('unit', ''),
+                ))
+            db.session.commit()
+        except Exception as ro_err:
+            db.session.rollback()
+            # Never let order creation crash the main sale flow
+            print(f'[RetailOrder] Failed to auto-create order for sale #{new_sale.id}: {ro_err}')
+
         flash(f"Bill No. {new_sale.id} recorded.", "success")
     except Exception as e:
         db.session.rollback()
@@ -384,8 +423,21 @@ def sales_log():
             if c.wallet_balance and abs(c.wallet_balance) > 0.01
         }
 
+    # ── Build retail-order status map {sale_id: (order_id, status)} ──────────
+    visible_sale_ids = [s.id for s in sales]
+    order_status_map = {}
+    if visible_sale_ids:
+        ro_rows = RetailOrder.query\
+            .filter(RetailOrder.sale_id.in_(visible_sale_ids))\
+            .with_entities(RetailOrder.sale_id, RetailOrder.id, RetailOrder.status)\
+            .all()
+        order_status_map = {
+            row.sale_id: {'order_id': row.id, 'status': row.status}
+            for row in ro_rows
+        }
+
     now_month = now_ist.strftime('%Y-%m')
-    return render_template('sales_log.html', sales_by_date=sales_by_date, daily_stats=daily_stats, monthly_stats=monthly_stats, wallet_map=wallet_map, current_filter_date=filter_date_str, current_filter_status=filter_status, current_filter_client=filter_client_str, now_month=now_month)
+    return render_template('sales_log.html', sales_by_date=sales_by_date, daily_stats=daily_stats, monthly_stats=monthly_stats, wallet_map=wallet_map, current_filter_date=filter_date_str, current_filter_status=filter_status, current_filter_client=filter_client_str, now_month=now_month, order_status_map=order_status_map)
 
 @sales_bp.route("/sales_monthly_stats")
 @login_required
@@ -512,6 +564,10 @@ def process_edit_sale():
                     customer.wallet_balance -= sale.wallet_credit
                     db.session.add(customer)
                     flash(f"₹{sale.wallet_credit} reverted from {customer.name}'s wallet.", "info")
+            # Delete linked RetailOrder first to prevent foreign key constraint violation
+            ro = RetailOrder.query.filter_by(sale_id=sale.id).first()
+            if ro:
+                db.session.delete(ro)
             db.session.delete(sale)
             log_activity('DELETE', 'Sales', f'Deleted sale #{sale_id_snap} ({client_name_snap})', ref_id=sale_id_snap, ref_type='Sale')
             db.session.commit()   # single atomic commit: delete + log together
@@ -520,6 +576,12 @@ def process_edit_sale():
 
         # --- 3. Clear old line items ---
         for oi in old_items: db.session.delete(oi)
+        
+        # Clear old RetailOrder line items (if RetailOrder exists)
+        ro = RetailOrder.query.filter_by(sale_id=sale.id).first()
+        if ro:
+            for ro_item in list(ro.items):
+                db.session.delete(ro_item)
 
         sale.client_name = client_name
         sale.warehouse_id = warehouse_id
@@ -564,6 +626,13 @@ def process_edit_sale():
                 description=item.get('description', ''), qty_sold=qty, unit=item['unit'],
                 total_price=line_total, gst_rate=gst_rate
             ))
+            if ro:
+                db.session.add(RetailOrderItem(
+                    order_id=ro.id,
+                    product_name=final_name,
+                    qty=qty,
+                    unit=item.get('unit', '')
+                ))
 
         sale.grand_total = running_total
         log_activity('UPDATE', 'Sales', f'Updated sale #{sale.id} for {sale.client_name} — ₹{running_total:.0f}', ref_id=sale.id, ref_type='Sale')

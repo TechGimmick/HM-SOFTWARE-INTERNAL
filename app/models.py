@@ -36,7 +36,6 @@ class Product(db.Model):
     subcategory_options = db.Column(db.String(500), nullable=True) 
     supplier_id = db.Column(db.Integer, db.ForeignKey('suppliers.id'), nullable=True)
     last_purchased_date = db.Column(db.DateTime, nullable=True) #New Date Column
-# In app.py
 
 class Customer(db.Model):
     __tablename__ = 'customers'
@@ -45,6 +44,7 @@ class Customer(db.Model):
     phone = db.Column(db.String(20), nullable=True)
     # --- ADD THIS LINE BELOW ---
     wallet_balance = db.Column(db.Float, default=0.0)
+
 class Sale(db.Model):
     __tablename__ = 'sales'
     id = db.Column(db.Integer, primary_key=True)
@@ -113,6 +113,7 @@ class Purchase(db.Model):
     received_details = db.Column(db.Text, nullable=True) # JSON of partial receives
     product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=True)
 
+
 class TallyBill(db.Model):
     __tablename__ = 'tally_bills'
     id = db.Column(db.Integer, primary_key=True)
@@ -130,6 +131,8 @@ class TallyBill(db.Model):
     customer_phone = db.Column(db.String(20), nullable=True)
     warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouses.id'), nullable=True)
     items = db.relationship('TallyBillItem', backref='bill', lazy=True, cascade="all, delete-orphan")
+
+
 
 class TallyBillItem(db.Model):
     __tablename__ = 'tally_bill_items'
@@ -173,7 +176,6 @@ class WarehouseStock(db.Model):
 
     # Relationship to product
     product = db.relationship('Product', backref=db.backref('warehouse_stocks', lazy=True, cascade="all, delete-orphan"))
-
 
 
 
@@ -224,21 +226,116 @@ class CashBookDailyBalance(db.Model):
 
 class ActivityLog(db.Model):
     """
-    Audit trail — every meaningful user action is recorded here.
-    Admins can view all entries; other users see only their own.
+    Audit trail — one row per user action.
+    Written via log_activity() in activity_service.py.
+    Table is created idempotently by _ensure_activity_log_table() in __init__.py.
     """
     __tablename__ = 'activity_logs'
-    id          = db.Column(db.Integer,  primary_key=True)
-    timestamp   = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True, nullable=False)
-    user_id     = db.Column(db.Integer,  db.ForeignKey('users.id'), nullable=True)
-    username    = db.Column(db.String(50),  nullable=True)   # cached for fast reads
-    action      = db.Column(db.String(50),  nullable=False)  # CREATE | UPDATE | DELETE | PAYMENT | LOGIN | LOGOUT
-    module      = db.Column(db.String(50),  nullable=False)  # Sales | Purchase | Inventory | CashBook | Auth
-    description = db.Column(db.String(500), nullable=False)  # human-readable summary
-    ref_id      = db.Column(db.Integer,  nullable=True)      # related record ID
-    ref_type    = db.Column(db.String(50),  nullable=True)   # e.g. 'Sale', 'Purchase', 'Product'
-    extra       = db.Column(db.Text,     nullable=True)      # JSON blob for additional detail
-
-    user = db.relationship('User', backref=db.backref('activity_logs', lazy=True))
+    id          = db.Column(db.Integer, primary_key=True)
+    timestamp   = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
+    user_id     = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    username    = db.Column(db.String(50))
+    action      = db.Column(db.String(50),  nullable=False)
+    module      = db.Column(db.String(50),  nullable=False)
+    description = db.Column(db.String(500), nullable=False)
+    ref_id      = db.Column(db.Integer)
+    ref_type    = db.Column(db.String(50))
+    extra       = db.Column(db.Text)
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+#  ORDERS MODULE
+# ──────────────────────────────────────────────────────────────────────────────
+
+class RetailOrder(db.Model):
+    """
+    Auto-created whenever a retail sales bill is saved.
+    Contains only NON-FINANCIAL data so warehouse workers can see
+    exactly what to pack without seeing prices.
+    """
+    __tablename__ = 'retail_orders'
+    id               = db.Column(db.Integer, primary_key=True)
+    sale_id          = db.Column(db.Integer, db.ForeignKey('sales.id', ondelete='CASCADE'), nullable=False, unique=True)
+    order_number     = db.Column(db.String(50), nullable=False, unique=True)   # e.g. ORD-00042
+    customer_name    = db.Column(db.String(200), nullable=False)               # snapshot at creation
+    customer_phone   = db.Column(db.String(20),  nullable=True)                # snapshot at creation
+    # Status flow: Pending → Packaging → Done → Sent
+    status           = db.Column(db.String(30), default='Pending', nullable=False, index=True)
+    created_at       = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    updated_at       = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_by_id    = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    created_by_name  = db.Column(db.String(50), nullable=True)                 # snapshot
+
+    items   = db.relationship('RetailOrderItem', backref='order', lazy=True, cascade='all, delete-orphan')
+    sale    = db.relationship('Sale', backref=db.backref('retail_order', uselist=False, lazy=True))
+    creator = db.relationship('User', foreign_keys=[created_by_id])
+
+
+class RetailOrderItem(db.Model):
+    """Line items for a RetailOrder — only product name + qty, nothing financial."""
+    __tablename__ = 'retail_order_items'
+    id           = db.Column(db.Integer, primary_key=True)
+    order_id     = db.Column(db.Integer, db.ForeignKey('retail_orders.id', ondelete='CASCADE'), nullable=False)
+    product_name = db.Column(db.String(200), nullable=False)
+    qty          = db.Column(db.Integer, nullable=False, default=1)
+    unit         = db.Column(db.String(50), nullable=True)
+
+
+class SupplierOrder(db.Model):
+    """
+    Orders Book — bulk / outside supply orders placed by admin or sales.
+    Status flow: Draft → Packing → Packed → Dispatched → Received
+    """
+    __tablename__ = 'supplier_orders'
+    id                       = db.Column(db.Integer, primary_key=True)
+    supplier_name            = db.Column(db.String(200), nullable=False)      # customer/party name
+    invoice_number           = db.Column(db.String(100), nullable=True)       # INV No.
+
+    # ── Order planning fields ────────────────────────────────────────────────
+    notes                    = db.Column(db.Text, nullable=True)              # instructions / packing guide
+    invoice_photo            = db.Column(db.String(300), nullable=True)       # uploaded invoice image / PDF
+    dispatch_date            = db.Column(db.DateTime, nullable=True)          # WHEN to dispatch (planned)
+    mode_of_dispatch         = db.Column(db.String(50), nullable=True)        # Transport / Porter / Self / Courier
+    is_immediate             = db.Column(db.Boolean, default=False, nullable=False)  # urgent flag → red badge
+    place_of_delivery        = db.Column(db.String(300), nullable=True)       # delivery address / destination
+    transport_name           = db.Column(db.String(200), nullable=True)       # transporter name (if mode=Transport)
+    transport_destination    = db.Column(db.String(200), nullable=True)       # where transport is going
+
+    # Status flow: Draft → Packing → Packed → Dispatched → Received
+    status                   = db.Column(db.String(30), default='Draft', nullable=False, index=True)
+    created_at               = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    updated_at               = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_by_id            = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+
+    # ── Dispatch proof — filled at dispatch time ─────────────────────────────
+    dispatch_person_name       = db.Column(db.String(200), nullable=True)     # person in charge
+    dispatch_person_phone      = db.Column(db.String(20),  nullable=True)
+    dispatch_driver_name       = db.Column(db.String(200), nullable=True)     # driver name
+    dispatch_vehicle_number    = db.Column(db.String(50),  nullable=True)     # vehicle / car number
+    dispatch_vehicle_name      = db.Column(db.String(100), nullable=True)     # vehicle type / transport name
+    dispatch_mode              = db.Column(db.String(50),  nullable=True)     # actual mode used at dispatch
+    receiving_photo_submitted  = db.Column(db.Boolean, default=False, nullable=False)   # proof received
+    transport_bill_submitted   = db.Column(db.Boolean, default=False, nullable=False)   # LR/transport bill submitted
+    dispatch_bill_photo        = db.Column(db.String(300), nullable=True)
+    dispatch_video             = db.Column(db.String(300), nullable=True)
+    dispatched_at              = db.Column(db.DateTime, nullable=True)
+
+    # ── Customer receipt confirmation ────────────────────────────────────────
+    received_at              = db.Column(db.DateTime, nullable=True)
+    received_by              = db.Column(db.String(200), nullable=True)        # receiver name / signature
+    receiving_photo          = db.Column(db.String(300), nullable=True)        # photo uploaded at receipt
+    transport_bill_photo     = db.Column(db.String(300), nullable=True)        # LR / transport bill photo
+    delivery_note            = db.Column(db.Text, nullable=True)               # issues/returns noted at delivery
+
+    items   = db.relationship('SupplierOrderItem', backref='order', lazy=True, cascade='all, delete-orphan')
+    creator = db.relationship('User', foreign_keys=[created_by_id])
+
+
+class SupplierOrderItem(db.Model):
+    """Line items for a SupplierOrder — only product name + qty + unit, nothing financial."""
+    __tablename__ = 'supplier_order_items'
+    id           = db.Column(db.Integer, primary_key=True)
+    order_id     = db.Column(db.Integer, db.ForeignKey('supplier_orders.id', ondelete='CASCADE'), nullable=False)
+    product_name = db.Column(db.String(200), nullable=False)
+    qty          = db.Column(db.Integer, nullable=False, default=1)
+    unit         = db.Column(db.String(50), nullable=True)

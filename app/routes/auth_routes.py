@@ -15,7 +15,9 @@ def index():
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('inventory.dashboard')) # Redirect to Dashboard in inventory
+        if current_user.role == 'store':
+            return redirect(url_for('orders.retail_queue'))
+        return redirect(url_for('inventory.dashboard'))
 
     if request.method == 'POST':
         username = request.form.get('username')
@@ -29,6 +31,8 @@ def login():
             log_activity('LOGIN', 'Auth', f'{user.username} logged in', ref_type='User')
             db.session.commit()
             flash('Logged in successfully.', 'success')
+            if user.role == 'store':
+                return redirect(url_for('orders.retail_queue'))
             return redirect(url_for('inventory.dashboard'))
                 
         flash('Invalid username or password', 'danger')

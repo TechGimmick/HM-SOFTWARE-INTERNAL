@@ -1,0 +1,348 @@
+{% extends "_layout.html" %}
+
+{% block content %}
+{% set ist = namespace(v=none) %}
+{% set ist_created    = order.created_at.strftime('%d %b %Y, %I:%M %p')    if order.created_at    else '—' %}
+{% set ist_updated    = order.updated_at.strftime('%d %b %Y, %I:%M %p')    if order.updated_at    else '—' %}
+{% set ist_dispatched = order.dispatched_at.strftime('%d %b %Y, %I:%M %p') if order.dispatched_at else '—' %}
+{% set ist_received   = order.received_at.strftime('%d %b %Y, %I:%M %p')   if order.received_at   else '—' %}
+{% set ist_dispatch_planned = order.dispatch_date.strftime('%d %b %Y, %I:%M %p') if order.dispatch_date else '—' %}
+
+
+
+<!-- ── Page Header ─────────────────────────────────────────────────────── -->
+<div class="ob-detail-header">
+    <div>
+        <div style="margin-bottom:4px;">
+            <a href="{{ url_for('orders.supplier_list') }}" class="text-muted" style="font-size:0.85rem;">
+                ← Orders Book
+            </a>
+        </div>
+        <h1>
+            Order <span style="color:#0ea5e9;">#{{ order.id }}</span>
+            {% if order.invoice_number %}
+            <span style="font-size:0.95rem; color:#64748b; font-weight:500;">· {{ order.invoice_number }}</span>
+            {% endif %}
+        </h1>
+        <div style="margin-top:6px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <span class="ob-badge badge-{{ order.status.lower() }}">{{ order.status }}</span>
+            <span class="text-muted" style="font-size:0.83rem;">{{ order.supplier_name }}</span>
+            <span class="text-muted" style="font-size:0.8rem;">Created: {{ ist_created }}</span>
+        </div>
+    </div>
+    <div class="action-bar">
+        {% if order.status == 'Draft' and current_user.role in ('admin', 'sales', 'store') %}
+        <a href="{{ url_for('orders.supplier_edit', order_id=order.id) }}" class="btn btn-secondary">✏️ Edit</a>
+        <form action="{{ url_for('orders.supplier_advance_status', order_id=order.id) }}" method="POST" style="display:inline;">
+            <button type="submit" class="btn btn-primary"
+                    onclick="return confirm('Start packing? Warehouse will be notified.')">▶ Start Packing</button>
+        </form>
+        {% elif order.status == 'Packing' and current_user.role in ('admin', 'sales', 'store', 'worker') %}
+        <form action="{{ url_for('orders.supplier_advance_status', order_id=order.id) }}" method="POST" style="display:inline;">
+            <button type="submit" class="btn btn-success"
+                    onclick="return confirm('Mark this order as fully packed?')">✓ Mark Packed</button>
+        </form>
+        {% endif %}
+        {% if current_user.role == 'admin' %}
+        <form action="{{ url_for('orders.supplier_delete', order_id=order.id) }}" method="POST" style="display:inline;"
+              onsubmit="return confirm('PERMANENTLY DELETE this order? This cannot be undone.')">
+            <button type="submit" class="btn btn-danger btn-sm">🗑 Delete</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Urgent banner -->
+{% if order.is_immediate %}
+<div class="urgent-banner">
+    <span style="font-size:1.5rem;">🔴</span>
+    <span>URGENT / IMMEDIATE ORDER — Handle with highest priority!</span>
+</div>
+{% endif %}
+
+<!-- ── Status Pipeline ─────────────────────────────────────────────────── -->
+{% set steps = [('Draft','📝','Draft'),('Packing','📦','Packing'),('Packed','✅','Packed'),('Dispatched','🚚','Dispatched'),('Received','🏁','Received')] %}
+{% set idx_map = {'Draft':0,'Packing':1,'Packed':2,'Dispatched':3,'Received':4} %}
+{% set current_idx = idx_map.get(order.status, 0) %}
+<div class="status-pipeline">
+    {% for step_name, step_icon, step_label in steps %}
+    {% set step_idx = loop.index0 %}
+    <div class="pipeline-step
+        {% if step_idx < current_idx %}completed
+        {% elif step_idx == current_idx %}
+            {% if step_name in ('Dispatched','Received') %}active-green{% else %}active{% endif %}
+        {% endif %}">
+        <span class="step-icon">{{ step_icon }}</span>{{ step_label }}
+    </div>
+    {% endfor %}
+</div>
+
+<!-- ── Order Info Card ─────────────────────────────────────────────────── -->
+<div class="detail-card">
+    <h3>📋 Order Details</h3>
+    <div class="info-grid">
+        <div class="info-item"><strong>Party / Customer</strong><span>{{ order.supplier_name }}</span></div>
+        <div class="info-item"><strong>INV Number</strong><span>{{ order.invoice_number or '—' }}</span></div>
+        <div class="info-item"><strong>Mode of Dispatch</strong><span>{{ order.mode_of_dispatch or '—' }}</span></div>
+        <div class="info-item"><strong>Place of Delivery</strong><span>{{ order.place_of_delivery or '—' }}</span></div>
+        {% if order.mode_of_dispatch == 'Transport' %}
+        <div class="info-item"><strong>Transporter</strong><span>{{ order.transport_name or '—' }}</span></div>
+        <div class="info-item"><strong>Transport Destination</strong><span>{{ order.transport_destination or '—' }}</span></div>
+        {% endif %}
+        <div class="info-item"><strong>Planned Dispatch Date</strong>
+            <span style="{% if order.is_immediate %}color:#dc2626; font-weight:800;{% endif %}">
+                {{ ist_dispatch_planned }}
+            </span>
+        </div>
+        <div class="info-item"><strong>Last Updated</strong><span>{{ ist_updated }}</span></div>
+    </div>
+</div>
+
+<!-- ── Instructions / Packing Guide ───────────────────────────────────── -->
+{% if order.notes %}
+<div class="detail-card" style="border-left:4px solid #f59e0b;">
+    <h3>📝 Instructions / Packing Guide</h3>
+    <p style="margin:0; font-size:0.92rem; color:#374151; white-space:pre-wrap;">{{ order.notes }}</p>
+</div>
+{% endif %}
+
+<!-- ── Invoice Photo / PDF ─────────────────────────────────────────────── -->
+<div class="detail-card">
+    <h3>📄 Invoice / Order Photo</h3>
+    {% if order.invoice_photo %}
+        {% set ext = order.invoice_photo.rsplit('.', 1)[-1].lower() %}
+        {% if ext == 'pdf' %}
+        <div style="text-align:center; padding:1rem 0;">
+            <span style="font-size:3rem; display:block; margin-bottom:0.5rem;">📄</span>
+            <p style="font-size:0.9rem; color:#374151; margin-bottom:0.75rem;">
+                PDF Invoice attached
+            </p>
+            <a href="{{ url_for('static', filename=order.invoice_photo) }}"
+               target="_blank" class="btn btn-primary" download>
+                ⬇ Download / View PDF
+            </a>
+        </div>
+        {% else %}
+        <div style="text-align:center;">
+            <a href="{{ url_for('static', filename=order.invoice_photo) }}"
+               target="_blank" title="Tap to open full size">
+                <img src="{{ url_for('static', filename=order.invoice_photo) }}"
+                     alt="Invoice"
+                     class="img-fluid w-100 rounded shadow-sm"
+                     style="max-height:480px; object-fit:contain; border:1.5px solid #e2e8f0; cursor:zoom-in;">
+            </a>
+            <p style="font-size:0.78rem; color:#94a3b8; margin-top:6px;">Tap image to open full size</p>
+        </div>
+        {% endif %}
+    {% else %}
+    <div style="text-align:center; padding:1.5rem 0; color:#94a3b8;">
+        <span style="font-size:2.5rem; display:block; margin-bottom:0.5rem;">📋</span>
+        <p style="font-size:0.88rem; margin:0;">No invoice photo uploaded.</p>
+        <p style="font-size:0.82rem; color:#cbd5e1; margin:4px 0 0;">Warehouse: collect the invoice from admin.</p>
+        {% if order.status == 'Draft' and current_user.role in ('admin', 'sales', 'store') %}
+        <a href="{{ url_for('orders.supplier_edit', order_id=order.id) }}"
+           class="btn btn-sm btn-secondary" style="margin-top:12px;">📎 Upload Invoice</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<!-- ── Dispatch Form (admin, Packed status only) ───────────────────────── -->
+{% if current_user.role in ('admin', 'sales', 'store') and order.status == 'Packed' %}
+<div class="dispatch-section">
+    <h3>🚚 Record Dispatch Details</h3>
+    <form action="{{ url_for('orders.supplier_dispatch', order_id=order.id) }}" method="POST"
+          enctype="multipart/form-data">
+        <div class="dispatch-grid">
+            <div class="form-group mb-0">
+                <label>Dispatch Date & Time <span style="color:red;">*</span></label>
+                <input type="datetime-local" name="dispatched_at" id="dispatched_at_input" required>
+            </div>
+            <div class="form-group mb-0">
+                <label>Mode of Dispatch (actual)</label>
+                <select name="dispatch_mode">
+                    <option value="">— Select —</option>
+                    <option value="Transport" {% if order.mode_of_dispatch == 'Transport' %}selected{% endif %}>Transport</option>
+                    <option value="Porter" {% if order.mode_of_dispatch == 'Porter' %}selected{% endif %}>Porter</option>
+                    <option value="Self" {% if order.mode_of_dispatch == 'Self' %}selected{% endif %}>Self / Own Vehicle</option>
+                    <option value="Courier" {% if order.mode_of_dispatch == 'Courier' %}selected{% endif %}>Courier</option>
+                </select>
+            </div>
+            <div class="form-group mb-0">
+                <label>Person In Charge <span style="color:red;">*</span></label>
+                <input type="text" name="dispatch_person_name" required placeholder="Full name">
+            </div>
+            <div class="form-group mb-0">
+                <label>Phone Number</label>
+                <input type="text" name="dispatch_person_phone" placeholder="10-digit phone">
+            </div>
+            <div class="form-group mb-0">
+                <label>Driver Name</label>
+                <input type="text" name="dispatch_driver_name" placeholder="Driver's name">
+            </div>
+            <div class="form-group mb-0">
+                <label>Vehicle Number / Porter ID</label>
+                <input type="text" name="dispatch_vehicle_number" placeholder="e.g. MH12AB1234">
+            </div>
+            <div class="form-group mb-0">
+                <label>Vehicle Name / Type</label>
+                <input type="text" name="dispatch_vehicle_name"
+                       placeholder="e.g. Tata Ace, Auto, Porter"
+                       value="{{ order.transport_name or '' }}">
+            </div>
+        </div>
+
+
+
+        <div class="dispatch-grid" style="margin-bottom:1rem;">
+            <div class="form-group mb-0">
+                <label>Bill / Invoice Photo</label>
+                <input type="file" name="dispatch_bill_photo" accept="image/*"
+                       style="padding:6px; border:1.5px solid #e2e8f0; border-radius:8px; width:100%; background:#fff;">
+            </div>
+            <div class="form-group mb-0">
+                <label>Dispatch Video</label>
+                <input type="file" name="dispatch_video" accept="video/*" capture="environment"
+                       style="padding:6px; border:1.5px solid #e2e8f0; border-radius:8px; width:100%; background:#fff;">
+                <small style="color:#64748b; font-size:0.78rem;">Tap to open camera directly</small>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-warning"
+                onclick="return confirm('Confirm dispatch and mark order as Dispatched?')">
+            🚚 Confirm Dispatch
+        </button>
+    </form>
+</div>
+{% endif %}
+
+<!-- ── Dispatch Summary (after dispatched) ────────────────────────────── -->
+{% if order.status in ('Dispatched', 'Received') %}
+<div class="detail-card" style="border-left:4px solid #f59e0b;">
+    <h3>🚚 Dispatch Information</h3>
+    <div class="info-grid">
+        <div class="info-item"><strong>Dispatched At</strong><span>{{ ist_dispatched }}</span></div>
+        <div class="info-item"><strong>Actual Mode</strong><span>{{ order.dispatch_mode or '—' }}</span></div>
+        <div class="info-item"><strong>Person In Charge</strong><span>{{ order.dispatch_person_name or '—' }}</span></div>
+        <div class="info-item"><strong>Phone</strong><span>{{ order.dispatch_person_phone or '—' }}</span></div>
+        <div class="info-item"><strong>Driver Name</strong><span>{{ order.dispatch_driver_name or '—' }}</span></div>
+        <div class="info-item"><strong>Vehicle Number</strong><span>{{ order.dispatch_vehicle_number or '—' }}</span></div>
+        <div class="info-item"><strong>Vehicle / Transport</strong><span>{{ order.dispatch_vehicle_name or '—' }}</span></div>
+    </div>
+    <div style="display:flex; gap:10px; margin-top:1rem; flex-wrap:wrap; align-items:center;">
+        <span class="proof-tag {% if order.receiving_photo_submitted %}proof-yes{% else %}proof-no{% endif %}">
+            📸 Receiving Photo: {{ 'Submitted ✓' if order.receiving_photo_submitted else 'Not Submitted' }}
+        </span>
+        <span class="proof-tag {% if order.transport_bill_submitted %}proof-yes{% else %}proof-no{% endif %}">
+            🧾 Transport Bill (LR): {{ 'Submitted ✓' if order.transport_bill_submitted else 'Not Submitted' }}
+        </span>
+        {% if order.dispatch_bill_photo %}
+        <a href="{{ url_for('orders.supplier_dispatch_detail', order_id=order.id) }}"
+           class="btn btn-sm btn-secondary">📋 View Dispatch Proof</a>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- ── Mark as Received ───────────────────────────────────────────────── -->
+{% if current_user.role in ('admin', 'sales', 'store') and order.status == 'Dispatched' %}
+<div class="received-section">
+    <h3>🏁 Mark as Received by Customer / Transport</h3>
+    <p style="font-size:0.88rem; color:#374151; margin-bottom:1rem;">
+        Upload the receiving photo and/or transport bill (LR), then enter the receiver's name to complete delivery.
+    </p>
+    <form action="{{ url_for('orders.supplier_mark_received', order_id=order.id) }}" method="POST"
+          enctype="multipart/form-data">
+        <div class="dispatch-grid" style="margin-bottom:1rem;">
+            <div class="form-group mb-0">
+                <label>Received By (Customer / Transport Name) <span style="color:red;">*</span></label>
+                <input type="text" name="received_by" placeholder="e.g. Rajesh Kumar or Gati Courier" required>
+            </div>
+            <div class="form-group mb-0">
+                <!-- placeholder to keep grid alignment -->
+            </div>
+            <div class="form-group mb-0">
+                <label>📸 Receiving Photo</label>
+                <input type="file" name="receiving_photo" accept="image/*"
+                       style="padding:6px; border:1.5px solid #e2e8f0; border-radius:8px; width:100%; background:#fff;">
+                <small style="color:#64748b; font-size:0.78rem;">Photo of goods delivered / customer signature</small>
+            </div>
+            <div class="form-group mb-0">
+                <label>🧾 Transport Bill (LR) Photo</label>
+                <input type="file" name="transport_bill_photo" accept="image/*"
+                       style="padding:6px; border:1.5px solid #e2e8f0; border-radius:8px; width:100%; background:#fff;">
+                <small style="color:#64748b; font-size:0.78rem;">Photo of the LR / lorry receipt</small>
+            </div>
+            <div class="form-group mb-0" style="grid-column: 1 / -1; margin-top: 0.5rem;">
+                <label>📝 Delivery Note / Issues</label>
+                <textarea name="delivery_note" rows="2" placeholder="e.g. Order pending, box was damaged, items returned, etc."></textarea>
+                <small style="color:#64748b; font-size:0.78rem;">Optional note for the sales team regarding the delivery.</small>
+            </div>
+        </div>
+        <button type="submit" class="btn btn-success"
+                onclick="return confirm('Mark this order as received by the customer / transport?')">
+            ✅ Mark as Received
+        </button>
+    </form>
+</div>
+{% endif %}
+
+<!-- ── Received Confirmation ─────────────────────────────────────────── -->
+{% if order.status == 'Received' %}
+<div class="detail-card" style="border-left:4px solid #22c55e; background:linear-gradient(135deg,#f0fdf4,#dcfce7);">
+    <h3>🏁 Received by Customer / Transport</h3>
+    <div class="info-grid">
+        <div class="info-item"><strong>Received At</strong><span>{{ ist_received }}</span></div>
+        <div class="info-item"><strong>Received By</strong><span>{{ order.received_by or 'Not recorded' }}</span></div>
+    </div>
+
+    {% if order.receiving_photo or order.transport_bill_photo %}
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-top:1rem;">
+        {% if order.receiving_photo %}
+        <div>
+            <div style="font-size:0.78rem; font-weight:700; color:#166534; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.4px;">📸 Receiving Photo</div>
+            <a href="{{ url_for('static', filename=order.receiving_photo) }}" target="_blank">
+                <img src="{{ url_for('static', filename=order.receiving_photo) }}"
+                     alt="Receiving Photo"
+                     class="img-fluid w-100 rounded"
+                     style="max-height:220px; object-fit:contain; border:1.5px solid #bbf7d0; cursor:zoom-in;">
+            </a>
+        </div>
+        {% endif %}
+        {% if order.transport_bill_photo %}
+        <div>
+            <div style="font-size:0.78rem; font-weight:700; color:#166534; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.4px;">🧾 Transport Bill (LR) Photo</div>
+            <a href="{{ url_for('static', filename=order.transport_bill_photo) }}" target="_blank">
+                <img src="{{ url_for('static', filename=order.transport_bill_photo) }}"
+                     alt="Transport Bill Photo"
+                     class="img-fluid w-100 rounded"
+                     style="max-height:220px; object-fit:contain; border:1.5px solid #bbf7d0; cursor:zoom-in;">
+            </a>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if order.delivery_note %}
+    <div style="margin-top:1.5rem; padding:12px; background:#fef3c7; border-left:4px solid #f59e0b; border-radius:6px;">
+        <div style="font-size:0.78rem; font-weight:700; color:#92400e; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.4px;">📝 Delivery Note / Remarks</div>
+        <div style="font-size:0.9rem; color:#451a03; white-space:pre-wrap;">{{ order.delivery_note }}</div>
+    </div>
+    {% endif %}
+
+    <div style="margin-top:1.5rem; padding:10px 14px; background:#bbf7d0; border-radius:8px; font-size:0.88rem; color:#14532d; font-weight:700;">
+        ✅ Delivery complete — this order has been fully delivered and received.
+    </div>
+</div>
+{% endif %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const dispatchInput = document.getElementById('dispatched_at_input');
+    if (dispatchInput) {
+        const now = new Date();
+        dispatchInput.value = (new Date(now - now.getTimezoneOffset()*60000)).toISOString().slice(0,16);
+    }
+});
+</script>
+{% endblock %}

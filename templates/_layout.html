@@ -101,10 +101,44 @@
                     </li>
                     {% endif %}
 
+                    {% if current_user.role in ['admin', 'sales', 'store', 'worker'] %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link fw-bold text-secondary dropdown-toggle" href="#"
+                           id="ordersDropdown" role="button"
+                           data-bs-toggle="dropdown" aria-expanded="false">Orders</a>
+                        <ul class="dropdown-menu shadow-sm border-0" aria-labelledby="ordersDropdown">
+                            <li>
+                                <a class="dropdown-item d-flex align-items-center gap-2"
+                                   href="{{ url_for('orders.retail_queue') }}">
+                                    <span>📦</span>
+                                    <span>
+                                        <strong class="hmp-dash-item-title">Retail Queue</strong>
+                                        <small class="text-muted hmp-dash-item-subtitle d-block">Live worker packing screen</small>
+                                    </span>
+                                </a>
+                            </li>
+                            {% if current_user.role in ['admin', 'sales', 'store'] %}
+                            <li>
+                                <a class="dropdown-item d-flex align-items-center gap-2"
+                                   href="{{ url_for('orders.supplier_list') }}">
+                                    <span>🚚</span>
+                                    <span>
+                                        <strong class="hmp-dash-item-title">Orders Book</strong>
+                                        <small class="text-muted hmp-dash-item-subtitle d-block">Bulk &amp; outside supply orders</small>
+                                    </span>
+                                </a>
+                            </li>
+                            {% endif %}
+                        </ul>
+                    </li>
+                    {% endif %}
+
+                    {% if current_user.role not in ['store'] %}
                     <li class="nav-item">
                         <a class="nav-link fw-bold text-secondary"
                             href="{{ url_for('inventory.inventory') }}">Inventory</a>
                     </li>
+                    {% endif %}
                 </ul>
 
                 <div class="d-flex align-items-center gap-2">

@@ -1,0 +1,114 @@
+{% extends "_layout.html" %}
+
+{% block content %}
+{% set ist_dispatched = (order.dispatched_at.strftime('%d %b %Y %I:%M %p')) if order.dispatched_at else '—' %}
+{% set ist_created = (order.created_at.strftime('%d %b %Y %I:%M %p')) if order.created_at else '—' %}
+
+
+
+<div style="margin-bottom:1rem;">
+    <a href="{{ url_for('orders.supplier_detail', order_id=order.id) }}" class="text-muted" style="font-size:0.85rem;">
+        ← Back to Invoice/Tally Bill #{{ order.id }}
+    </a>
+</div>
+
+<div class="dispatch-proof-card">
+    <div class="proof-header">
+        <div class="proof-icon">🚚</div>
+        <div class="proof-title">
+            <h2>Dispatch Proof — Order #{{ order.id }}{% if order.invoice_number %} · {{ order.invoice_number }}{% endif %}</h2>
+            <small>{{ order.supplier_name }} · Dispatched {{ ist_dispatched }}</small>
+        </div>
+    </div>
+
+    <!-- Delivery Person Info -->
+    <div class="info-grid">
+        <div class="info-field">
+            <label>INV Number</label>
+            <span>{{ order.invoice_number or '—' }}</span>
+        </div>
+        <div class="info-field">
+            <label>Party / Customer</label>
+            <span>{{ order.supplier_name }}</span>
+        </div>
+        <div class="info-field">
+            <label>Delivery Person</label>
+            <span>{{ order.dispatch_person_name or '—' }}</span>
+        </div>
+        <div class="info-field">
+            <label>Phone</label>
+            <span>{{ order.dispatch_person_phone or '—' }}</span>
+        </div>
+        <div class="info-field">
+            <label>Vehicle Number</label>
+            <span>{{ order.dispatch_vehicle_number or '—' }}</span>
+        </div>
+        <div class="info-field">
+            <label>Order Created</label>
+            <span>{{ ist_created }}</span>
+        </div>
+    </div>
+
+    <!-- Items Summary -->
+    <div class="items-summary">
+        <h4>📦 Items Dispatched</h4>
+        <ul>
+            {% for item in order.items %}
+            <li>
+                <span>{{ item.product_name }}</span>
+                <strong>{{ item.qty }}{% if item.unit %} {{ item.unit }}{% endif %}</strong>
+            </li>
+            {% else %}
+            <li style="color:#94a3b8;">No items recorded.</li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <!-- Media Proof -->
+    <div class="media-section mt-4">
+        <h3 class="fw-bold mb-3">📸 Proof Attachments</h3>
+        <div class="row">
+            <div class="media-box col-md-6">
+                <div class="media-box-label">🧾 Bill / Invoice Photo</div>
+                <div class="media-box-content">
+                    {% if order.dispatch_bill_photo %}
+                    <img src="{{ url_for('static', filename=order.dispatch_bill_photo) }}"
+                         alt="Bill photo" class="img-fluid rounded w-100" style="max-height: 280px; object-fit: contain;">
+                    <div class="mt-2">
+                        <a href="{{ url_for('static', filename=order.dispatch_bill_photo) }}"
+                           target="_blank" class="btn btn-sm btn-secondary">Open Full Size</a>
+                    </div>
+                    {% else %}
+                    <div class="no-media">📎 No photo uploaded</div>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="media-box col-md-6 mt-3 mt-md-0">
+                <div class="media-box-label">🎥 Dispatch Video</div>
+                <div class="media-box-content">
+                    {% if order.dispatch_video %}
+                    <video controls class="w-100 rounded" style="max-height: 280px; object-fit: contain;">
+                        <source src="{{ url_for('static', filename=order.dispatch_video) }}">
+                        Your browser does not support the video tag.
+                    </video>
+                    {% else %}
+                    <div class="no-media">🎬 No video uploaded</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if order.notes %}
+    <div class="alert alert-warning mt-3">
+        <strong>📝 Notes:</strong>
+        <span class="ms-2">{{ order.notes }}</span>
+    </div>
+    {% endif %}
+</div>
+
+<div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('orders.supplier_list') }}" class="btn btn-secondary">← All Invoices / Tally Bills</a>
+    <button onclick="window.print()" class="btn btn-primary">🖨️ Print Proof</button>
+</div>
+{% endblock %}

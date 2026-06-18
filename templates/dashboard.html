@@ -97,6 +97,25 @@
     </div>
 </div>
 
+{% if current_user.role == 'store' %}
+<!-- === STORE DASHBOARD === -->
+<div id="store-stats-wrapper" class="stats-bar">
+    <a href="{{ url_for('orders.retail_queue') }}" class="stat-card" style="text-decoration:none; transition: transform 0.2s; cursor: pointer; color: inherit;" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform='none'">
+        <div class="stat-icon">📦</div>
+        <div>
+            <div class="stat-value" id="stat-store-retail"><span class="skeleton skeleton-stat-value"></span></div>
+            <div class="stat-label">Pending Retail Orders</div>
+        </div>
+    </a>
+    <a href="{{ url_for('orders.supplier_list') }}" class="stat-card" style="text-decoration:none; transition: transform 0.2s; cursor: pointer; color: inherit;" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform='none'">
+        <div class="stat-icon">🚚</div>
+        <div>
+            <div class="stat-value" id="stat-store-invoice"><span class="skeleton skeleton-stat-value"></span></div>
+            <div class="stat-label">Active Invoice Orders</div>
+        </div>
+    </a>
+</div>
+{% else %}
 <!-- === TODAY'S STATS BAR (skeleton shown immediately, filled by JS) === -->
 <div id="stats-bar-wrapper" class="stats-bar">
     <div class="stat-card">
@@ -114,6 +133,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 <!-- === QUICK ACTIONS (always visible instantly, no data needed) === -->
 <div class="quick-actions" id="quick-actions-bar">
@@ -299,6 +319,11 @@ function renderStats(stats, role) {
             pend.textContent = stats.pending_bills;
             if (stats.pending_bills > 0) pend.style.color = 'var(--danger)';
         }
+    } else if (role === 'store') {
+        const sr = document.getElementById('stat-store-retail');
+        const si = document.getElementById('stat-store-invoice');
+        if (sr) sr.textContent = stats.store_retail_count;
+        if (si) si.textContent = stats.store_invoice_count;
     } else {
         const bar = document.getElementById('stats-bar-wrapper');
         if (bar) bar.style.display = 'none';
@@ -306,7 +331,7 @@ function renderStats(stats, role) {
 }
 
 // ── Fetch everything after the page is visible ──
-window.addEventListener('DOMContentLoaded', function () {
+function loadDashboardData() {
     fetch('/dashboard_data')
         .then(r => r.json())
         .then(data => {
@@ -320,11 +345,17 @@ window.addEventListener('DOMContentLoaded', function () {
                 const el = document.getElementById(id);
                 if (el) el.innerHTML = '<p class="text-muted text-center py-3">Could not load data.</p>';
             });
-            ['stat-revenue', 'stat-pending'].forEach(id => {
+            ['stat-revenue', 'stat-pending', 'stat-store-retail', 'stat-store-invoice'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.textContent = '\u2014';
             });
         });
+}
+
+window.addEventListener('DOMContentLoaded', function () {
+    loadDashboardData();
+    // Auto-refresh every 2 minutes (120000ms)
+    setInterval(loadDashboardData, 120000);
 });
 </script>
 {% endblock %}

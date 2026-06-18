@@ -125,14 +125,16 @@
             <details class="bill-item search-item" data-client="{{ bill_data.client_name|lower }}"
                 data-status="{{ bill_data.payment_status }}" data-cash="{{ bill_data.paid_cash }}"
                 data-online="{{ bill_data.paid_online }}"
-                data-payment-date="{{ bill_data.raw_payment_date or '' }}">
+                data-payment-date="{{ bill_data.raw_payment_date or '' }}"
+                data-sale-id="{{ sales_id }}">
 
                 <summary class="bill-summary">
                     <div class="flex-between gap-15">
                         <strong>Bill #{{ sales_id }}</strong>
                         <span class="text-muted">{{ bill_data.client_name }}</span>
                         <span
-                            class="status-badge {{ 'status-order-sent' if bill_data.order_status == 'Order Sent' else 'status-order-pending' }}">
+                            id="summary-order-badge-{{ sales_id }}"
+                            class="status-badge {{ 'status-order-sent' if bill_data.order_status == 'Order Sent' else ('status-order-dispatched' if bill_data.order_status == 'Order Dispatched' else 'status-order-pending') }}">
                             {{ bill_data.order_status }}
                         </span>
                         <span
@@ -208,18 +210,56 @@
                     </div>
 
                     <div class="status-manager">
-                        <form action="{{ url_for('sales.update_status') }}" method="POST" class="flex-between gap-10">
-                            <input type="hidden" name="sales_id" value="{{ sales_id }}">
-                            <input type="hidden" name="status_type" value="order">
-                            <label>Order:</label>
-                            {% if bill_data.order_status == 'Order Pending' %}
-                            <button type="submit" name="new_value" value="Order Sent"
-                                class="btn btn-sm btn-primary">Mark Sent</button>
-                            {% else %}
-                            <button type="submit" name="new_value" value="Order Pending"
-                                class="btn btn-sm btn-secondary">Mark Pending</button>
+                        {# ── Retail Order Status Controls ──────────────────────────────── #}
+                        {% set ro = order_status_map.get(sales_id) %}
+                        {% if ro %}
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                            <label style="font-weight:600; color:#475569; font-size:0.85rem;">📦 Order:</label>
+                            <span id="order-status-badge-{{ sales_id }}" class="status-badge
+                                {% if ro.status == 'Pending' %}status-order-pending
+                                {% elif ro.status == 'Packaging' %}" style="background:#dbeafe;color:#1e40af;
+                                {% elif ro.status == 'Done' %}" style="background:#dcfce7;color:#166534;
+                                {% elif ro.status == 'SentToSalesGuy' %}" style="background:#fff3e0;color:#92400e;
+                                {% elif ro.status == 'SentToCustomer' %}status-order-sent
+                                {% endif %}">
+                                {% if ro.status == 'SentToSalesGuy' %}Sent to Sales Guy
+                                {% elif ro.status == 'SentToCustomer' %}Sent to Customer
+                                {% else %}{{ ro.status }}
+                                {% endif %}
+                            </span>
+
+                            {% if ro.status == 'Pending' %}
+                            <button class="btn btn-sm btn-primary"
+                                    onclick="advanceOrderStatus({{ ro.order_id }}, {{ sales_id }}, this, '{{ ro.status }}')">
+                                ▶ Start Packaging
+                            </button>
+                            {% elif ro.status == 'SentToSalesGuy' %}
+                            <button class="btn btn-sm btn-success"
+                                    onclick="markSentToCustomer({{ ro.order_id }}, {{ sales_id }}, this)">
+                                ✅ Mark Sent to Customer
+                            </button>
+                            {% elif ro.status == 'Packaging' %}
+                            <span style="font-size:0.8rem; color:#64748b; font-style:italic;">
+                                Being packed…
+                            </span>
+                            {% elif ro.status == 'Done' %}
+                            <span style="font-size:0.8rem; color:#166534; font-style:italic;">
+                                ✅ Packed — awaiting dispatch from warehouse
+                            </span>
                             {% endif %}
-                        </form>
+
+                            <a href="{{ url_for('orders.retail_queue') }}"
+                               class="btn btn-sm btn-secondary" target="_blank"
+                               title="Open worker queue in new tab">Queue ↗</a>
+                        </div>
+                        {% else %}
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <label style="font-weight:600; color:#475569; font-size:0.85rem;">📦 Order:</label>
+                            <span class="text-muted" style="font-size:0.83rem;">No order linked</span>
+                        </div>
+                        {% endif %}
+
+                        {# ── Payment Controls (existing) ───────────────────────────────── #}
                         <div class="flex-between gap-10">
                             <label>Payment:</label>
                             <button class="btn btn-sm btn-success"
@@ -580,5 +620,135 @@
 
     function closeModal(id) { document.getElementById(id).classList.remove('active'); }
     window.onclick = function (e) { if (e.target.classList.contains('custom-modal')) e.target.classList.remove('active'); }
+
+    // === Retail Order Status Advance (AJAX - no page reload) ===
+    const ORDER_STATUS_URL     = "{{ url_for('orders.retail_advance_status', order_id=0) }}".replace('0/status', '');
+    const SENT_TO_CUSTOMER_URL = "{{ url_for('orders.retail_mark_sent_to_customer', order_id=0) }}".replace('/0/sent_to_customer', '/');
+
+    // Used for Pending → Packaging only from the Sales Log
+    async function advanceOrderStatus(orderId, saleId, btn, currentStatus) {
+        const originalText = btn.textContent.trim();
+        btn.disabled = true;
+        btn.textContent = '…';
+
+        try {
+            const res  = await fetch(ORDER_STATUS_URL + orderId + '/status', {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                const newStatus = data.new_status;
+
+                // Update badge
+                const badge = document.getElementById('order-status-badge-' + saleId);
+                if (badge) {
+                    badge.textContent = newStatus;
+                    badge.className = 'status-badge';
+                    if (newStatus === 'Pending') badge.classList.add('status-order-pending');
+                    else if (newStatus === 'Packaging') {
+                        badge.style.background = '#dbeafe';
+                        badge.style.color = '#1e40af';
+                    }
+                }
+
+                // Swap the action button — only Packaging shows a text hint
+                const container = btn.parentElement;
+                const oldBtns = container.querySelectorAll('button[onclick^="advanceOrderStatus"], button[onclick^="markSentToCustomer"]');
+                const oldSpan = container.querySelector('span[style*="font-style:italic"], span[style*="font-style: italic"]');
+                oldBtns.forEach(b => b.remove());
+                if (oldSpan) oldSpan.remove();
+
+                if (newStatus === 'Packaging') {
+                    const sp = document.createElement('span');
+                    sp.style.cssText = 'font-size:0.8rem;color:#64748b;font-style:italic;';
+                    sp.textContent = 'Being packed…';
+                    container.insertBefore(sp, container.querySelector('a'));
+                }
+                // Done: show static hint (warehouse will dispatch)
+                if (newStatus === 'Done') {
+                    const sp = document.createElement('span');
+                    sp.style.cssText = 'font-size:0.8rem;color:#166534;font-style:italic;';
+                    sp.textContent = '✅ Packed — awaiting dispatch from warehouse';
+                    container.insertBefore(sp, container.querySelector('a'));
+                }
+
+            } else {
+                Swal.fire({ icon: 'error', title: 'Error', text: data.error || 'Could not update status.', customClass: { popup: 'rounded-4 border-0 shadow-lg' }});
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        } catch (e) {
+            Swal.fire({ icon: 'error', title: 'Network Error', text: 'Network error. Please try again.', customClass: { popup: 'rounded-4 border-0 shadow-lg' }});
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
+
+    // Used ONLY from Sales Log: marks SentToSalesGuy → SentToCustomer (deletes order)
+    async function markSentToCustomer(orderId, saleId, btn) {
+        const confirmResult = await Swal.fire({
+            title: 'Please Confirm',
+            text: 'Confirm: Mark this order as delivered to the customer?',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#0ea5e9',
+            cancelButtonColor: '#94a3b8',
+            confirmButtonText: 'Yes, delivered',
+            reverseButtons: true,
+            customClass: { popup: 'rounded-4 border-0 shadow-lg' }
+        });
+        if (!confirmResult.isConfirmed) return;
+
+        const originalText = btn.textContent.trim();
+        btn.disabled = true;
+        btn.textContent = '…';
+
+        try {
+            const url = SENT_TO_CUSTOMER_URL + orderId + '/sent_to_customer';
+            const res  = await fetch(url, {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                // ── Update the inner detail badge ────────────────────────────
+                const badge = document.getElementById('order-status-badge-' + saleId);
+                if (badge) {
+                    badge.textContent = 'Sent to Customer';
+                    badge.className = 'status-badge status-order-sent';
+                    badge.removeAttribute('style');
+                }
+
+                // ── Update the SUMMARY (header) badge at the top of the bill ─
+                const summaryBadge = document.getElementById('summary-order-badge-' + saleId);
+                if (summaryBadge) {
+                    summaryBadge.textContent = 'Order Sent';
+                    summaryBadge.className = 'status-badge status-order-sent';
+                    summaryBadge.removeAttribute('style');
+                }
+
+                // Remove button, show completion text
+                const container = btn.parentElement;
+                btn.remove();
+                const sp = document.createElement('span');
+                sp.style.cssText = 'font-size:0.8rem;color:#166534;font-weight:600;';
+                sp.textContent = '✅ Delivered to Customer';
+                container.insertBefore(sp, container.querySelector('a'));
+
+            } else {
+                alert(data.error || 'Could not mark as sent to customer.');
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        } catch (e) {
+            alert('Network error. Please try again.');
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
+
 </script>
 {% endblock %}
