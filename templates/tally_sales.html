@@ -19,7 +19,7 @@
             <div class="form-group mb-0" style="flex: 1; min-width: 150px;">
                 <label class="fw-bold text-secondary text-uppercase mb-1" style="font-size:0.8rem;">Filter Status</label>
                 <select id="filter-status" class="form-select border-secondary" onchange="applyFilters()">
-                    <option value="all" {% if current_filter_status=='all' %}selected{% endif %}>Show All</option>
+                    <option value="all" {% if not current_filter_status or current_filter_status=='all' %}selected{% endif %}>Show All</option>
                     <option value="partial" {% if current_filter_status=='partial' %}selected{% endif %}>Partial / Pending</option>
                     <option value="full_cash" {% if current_filter_status=='full_cash' %}selected{% endif %}>Full Payment (Cash)</option>
                     <option value="full_online" {% if current_filter_status=='full_online' %}selected{% endif %}>Full Payment (Online)</option>
@@ -27,20 +27,10 @@
                 </select>
             </div>
 
-            <div class="form-group mb-0" style="flex: 1; min-width: 150px;">
-                <label class="fw-bold text-secondary text-uppercase mb-1" style="font-size:0.8rem;">Filter Overdue</label>
-                <select id="filter-overdue" class="form-select border-secondary" onchange="applyFilters()">
-                    <option value="all" {% if current_filter_overdue=='all' %}selected{% endif %}>Show All Credit</option>
-                    <option value="matured" {% if current_filter_overdue=='matured' %}selected{% endif %}>Matured / Overdue</option>
-                    <option value="overdue_10" {% if current_filter_overdue=='overdue_10' %}selected{% endif %}>Overdue > 10 Days</option>
-                    <option value="overdue_30" {% if current_filter_overdue=='overdue_30' %}selected{% endif %}>Overdue > 30 Days</option>
-                </select>
-            </div>
-
             <div class="form-group mb-0" style="flex: 2; min-width: 200px;">
-                <label class="fw-bold text-secondary text-uppercase mb-1" style="font-size:0.8rem;">Search Invoice No.</label>
+                <label class="fw-bold text-secondary text-uppercase mb-1" style="font-size:0.8rem;">Search Invoice / Customer</label>
                 <div class="d-flex gap-2">
-                    <input type="text" id="filter-inv" class="form-control border-secondary" value="{{ current_filter_inv or '' }}" placeholder="Press Enter to search..." onkeydown="if(event.key === 'Enter') applyFilters()">
+                    <input type="text" id="filter-inv" class="form-control border-secondary" value="{{ current_filter_inv or '' }}" placeholder="Search by name/inv..." onkeydown="if(event.key === 'Enter') applyFilters()">
                     <button type="button" class="btn btn-primary shadow-sm" onclick="applyFilters()"><i class="bi bi-search"></i></button>
                 </div>
             </div>
@@ -75,8 +65,8 @@
             <summary class="bill-summary p-3" style="list-style: none;">
                 <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
                     <div style="flex: 1; min-width: 200px;">
-                        <strong class="d-block text-primary" style="font-size: 1.1rem;">Invoice #{{ tally.invoice_number }}</strong>
-                        <span class="text-muted small"><i class="bi bi-calendar3"></i> {{ tally.date.strftime('%d %b %Y') }}</span>
+                        <strong class="d-block text-primary" style="font-size: 1.1rem;">Invoice #{{ tally.invoice_number }}{% if tally.client_name %} <span class="text-secondary">- {{ tally.client_name }}</span>{% endif %}</strong>
+                        <span class="text-muted small"><i class="bi bi-calendar3"></i> {{ tally.date_ist.strftime('%d %b %Y') }}</span>
                     </div>
 
                     <div style="flex: 1;" class="d-flex gap-2 align-items-center">
@@ -236,15 +226,19 @@
             <!-- Row 1 -->
             <!-- Row 1 -->
             <div class="row gx-3 mb-3">
-                <div class="col-md-6 form-group mb-3 mb-md-0">
+                <div class="col-md-3 form-group mb-3 mb-md-0">
                     <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Invoice Number</label>
                     <input type="text" class="form-control p-2" name="invoice_number" placeholder="e.g. INV-2034" required>
                 </div>
-                <div class="col-md-6 form-group mb-3 mb-md-0">
+                <div class="col-md-3 form-group mb-3 mb-md-0">
+                    <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Customer Name</label>
+                    <input type="text" class="form-control p-2" name="customer_name" placeholder="e.g. John Doe">
+                </div>
+                <div class="col-md-3 form-group mb-3 mb-md-0">
                     <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Credit Period (Days)</label>
                     <input type="number" class="form-control p-2" name="credit_period" id="tally_credit_period" placeholder="e.g. 15, 30" value="0" min="0">
                 </div>
-                <div class="col-md-4 form-group mb-3 mb-md-0">
+                <div class="col-md-3 form-group mb-3 mb-md-0">
                     <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Dispatch Warehouse</label>
                     <select class="form-select p-2" name="warehouse_id" required>
                         {% for w in warehouses %}
@@ -631,6 +625,7 @@
         const jsonInput = document.getElementById('tally_cart_json');
         
         let tallyCartMap = [];
+        let activeIndex = -1;
         
         // We receive this natively from backend
         let allProducts = [];
@@ -696,7 +691,7 @@
         productSearch.addEventListener('input', function() {
             const query = this.value.toLowerCase();
             searchResults.innerHTML = '';
-            
+            activeIndex = -1;
             
             // Re-hide initially
             searchResults.style.display = 'none';
@@ -709,8 +704,10 @@
             
             if(matches.length > 0) {
                 searchResults.style.display = 'block';
-                matches.forEach(p => {
+                matches.forEach((p, idx) => {
                     const div = document.createElement('div');
+                    div.className = 'search-item';
+                    div.dataset.index = idx;
                     div.style.padding = '8px 12px';
                     div.style.cursor = 'pointer';
                     div.style.borderBottom = '1px solid #eee';
@@ -721,6 +718,7 @@
                         productSearch.value = p.name;
                         productIdInput.value = p.id;
                         searchResults.style.display = 'none';
+                        activeIndex = -1;
                         
                         const stockInfo = document.getElementById('product_stock_info');
                         stockInfo.style.display = 'block';
@@ -732,18 +730,54 @@
                         }
                     };
                     
-                    div.onmouseover = function() { div.style.backgroundColor = '#f8f9fa'; };
-                    div.onmouseout = function() { div.style.backgroundColor = 'transparent'; };
-                    
                     searchResults.appendChild(div);
                 });
             }
         });
 
+        // Keyboard navigation for tally search
+        productSearch.addEventListener('keydown', function(e) {
+            const items = searchResults.querySelectorAll('.search-item');
+            if (searchResults.style.display === 'block' && items.length > 0) {
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    activeIndex++;
+                    if (activeIndex >= items.length) activeIndex = 0;
+                    highlightItem(items);
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    activeIndex--;
+                    if (activeIndex < 0) activeIndex = items.length - 1;
+                    highlightItem(items);
+                } else if (e.key === 'Enter') {
+                    if (activeIndex >= 0 && activeIndex < items.length) {
+                        e.preventDefault();
+                        items[activeIndex].click();
+                    }
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    searchResults.style.display = 'none';
+                    activeIndex = -1;
+                }
+            }
+        });
+
+        function highlightItem(items) {
+            items.forEach((item, idx) => {
+                if (idx === activeIndex) {
+                    item.classList.add('highlighted');
+                    item.scrollIntoView({ block: 'nearest' });
+                } else {
+                    item.classList.remove('highlighted');
+                }
+            });
+        }
+
         // Close dropdown when clicked outside
         document.addEventListener('click', function(e) {
             if (e.target !== productSearch && e.target !== searchResults) {
                 searchResults.style.display = 'none';
+                activeIndex = -1;
             }
         });
         

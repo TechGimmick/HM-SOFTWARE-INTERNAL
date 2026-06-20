@@ -14,7 +14,7 @@
 <div class="ob-detail-header">
     <div>
         <div style="margin-bottom:4px;">
-            <a href="{{ url_for('orders.supplier_list') }}" class="text-muted" style="font-size:0.85rem;">
+            <a href="{{ url_for('orders.invoice_orders_list') }}" class="text-muted" style="font-size:0.85rem;">
                 ← Orders Book
             </a>
         </div>
@@ -32,19 +32,19 @@
     </div>
     <div class="action-bar">
         {% if order.status == 'Draft' and current_user.role in ('admin', 'sales', 'store') %}
-        <a href="{{ url_for('orders.supplier_edit', order_id=order.id) }}" class="btn btn-secondary">✏️ Edit</a>
-        <form action="{{ url_for('orders.supplier_advance_status', order_id=order.id) }}" method="POST" style="display:inline;">
+        <a href="{{ url_for('orders.invoice_order_edit', order_id=order.id) }}" class="btn btn-secondary">✏️ Edit</a>
+        <form action="{{ url_for('orders.invoice_order_advance_status', order_id=order.id) }}" method="POST" style="display:inline;">
             <button type="submit" class="btn btn-primary"
                     onclick="return confirm('Start packing? Warehouse will be notified.')">▶ Start Packing</button>
         </form>
         {% elif order.status == 'Packing' and current_user.role in ('admin', 'sales', 'store', 'worker') %}
-        <form action="{{ url_for('orders.supplier_advance_status', order_id=order.id) }}" method="POST" style="display:inline;">
+        <form action="{{ url_for('orders.invoice_order_advance_status', order_id=order.id) }}" method="POST" style="display:inline;">
             <button type="submit" class="btn btn-success"
                     onclick="return confirm('Mark this order as fully packed?')">✓ Mark Packed</button>
         </form>
         {% endif %}
         {% if current_user.role == 'admin' %}
-        <form action="{{ url_for('orders.supplier_delete', order_id=order.id) }}" method="POST" style="display:inline;"
+        <form action="{{ url_for('orders.invoice_order_delete', order_id=order.id) }}" method="POST" style="display:inline;"
               onsubmit="return confirm('PERMANENTLY DELETE this order? This cannot be undone.')">
             <button type="submit" class="btn btn-danger btn-sm">🗑 Delete</button>
         </form>
@@ -140,7 +140,7 @@
         <p style="font-size:0.88rem; margin:0;">No invoice photo uploaded.</p>
         <p style="font-size:0.82rem; color:#cbd5e1; margin:4px 0 0;">Warehouse: collect the invoice from admin.</p>
         {% if order.status == 'Draft' and current_user.role in ('admin', 'sales', 'store') %}
-        <a href="{{ url_for('orders.supplier_edit', order_id=order.id) }}"
+        <a href="{{ url_for('orders.invoice_order_edit', order_id=order.id) }}"
            class="btn btn-sm btn-secondary" style="margin-top:12px;">📎 Upload Invoice</a>
         {% endif %}
     </div>
@@ -151,7 +151,7 @@
 {% if current_user.role in ('admin', 'sales', 'store') and order.status == 'Packed' %}
 <div class="dispatch-section">
     <h3>🚚 Record Dispatch Details</h3>
-    <form action="{{ url_for('orders.supplier_dispatch', order_id=order.id) }}" method="POST"
+    <form action="{{ url_for('orders.invoice_order_dispatch', order_id=order.id) }}" method="POST"
           enctype="multipart/form-data">
         <div class="dispatch-grid">
             <div class="form-group mb-0">
@@ -237,7 +237,7 @@
             🧾 Transport Bill (LR): {{ 'Submitted ✓' if order.transport_bill_submitted else 'Not Submitted' }}
         </span>
         {% if order.dispatch_bill_photo %}
-        <a href="{{ url_for('orders.supplier_dispatch_detail', order_id=order.id) }}"
+        <a href="{{ url_for('orders.invoice_order_dispatch_detail', order_id=order.id) }}"
            class="btn btn-sm btn-secondary">📋 View Dispatch Proof</a>
         {% endif %}
     </div>
@@ -251,7 +251,7 @@
     <p style="font-size:0.88rem; color:#374151; margin-bottom:1rem;">
         Upload the receiving photo and/or transport bill (LR), then enter the receiver's name to complete delivery.
     </p>
-    <form action="{{ url_for('orders.supplier_mark_received', order_id=order.id) }}" method="POST"
+    <form action="{{ url_for('orders.invoice_order_mark_received', order_id=order.id) }}" method="POST"
           enctype="multipart/form-data">
         <div class="dispatch-grid" style="margin-bottom:1rem;">
             <div class="form-group mb-0">

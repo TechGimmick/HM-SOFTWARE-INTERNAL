@@ -7,7 +7,7 @@
 
 
 <div style="margin-bottom:1rem;">
-    <a href="{{ url_for('orders.supplier_detail', order_id=order.id) }}" class="text-muted" style="font-size:0.85rem;">
+    <a href="{{ url_for('orders.invoice_order_detail', order_id=order.id) }}" class="text-muted" style="font-size:0.85rem;">
         ← Back to Invoice/Tally Bill #{{ order.id }}
     </a>
 </div>
@@ -108,7 +108,7 @@
 </div>
 
 <div class="d-flex gap-2 flex-wrap">
-    <a href="{{ url_for('orders.supplier_list') }}" class="btn btn-secondary">← All Invoices / Tally Bills</a>
+    <a href="{{ url_for('orders.invoice_orders_list') }}" class="btn btn-secondary">← All Invoices / Tally Bills</a>
     <button onclick="window.print()" class="btn btn-primary">🖨️ Print Proof</button>
 </div>
 {% endblock %}

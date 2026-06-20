@@ -21,7 +21,7 @@ alembic==1.18.1
 Mako==1.3.10
 
 # ── PDF Generation ────────────────────────────────────────
-fpdf2==2.8.5
+fpdf2==2.8.7
 fonttools==4.60.1
 pillow==12.0.0
 # python-barcode installs as the 'barcode' package

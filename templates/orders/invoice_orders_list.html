@@ -86,7 +86,7 @@
                     {{ (so.updated_at or so.created_at).strftime('%d %b, %H:%M') if (so.updated_at or so.created_at) else '—' }}
                 </td>
                 <td>
-                    <a href="{{ url_for('orders.supplier_detail', order_id=so.id) }}"
+                    <a href="{{ url_for('orders.invoice_order_detail', order_id=so.id) }}"
                        class="btn btn-sm btn-primary">View</a>
                 </td>
             </tr>
@@ -106,7 +106,7 @@
 {% if current_user.role in ('admin', 'sales', 'store') %}
 <div class="ob-create-card" id="createForm">
     <h2>📝 Create New Order</h2>
-    <form action="{{ url_for('orders.supplier_create') }}" method="POST" enctype="multipart/form-data">
+    <form action="{{ url_for('orders.invoice_order_create') }}" method="POST" enctype="multipart/form-data">
 
         <div class="form-grid-2">
             <div class="form-group">
@@ -199,7 +199,7 @@
         </div>
 
         <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:1rem;">
-            <a href="{{ url_for('orders.supplier_list') }}" class="btn btn-secondary">Cancel</a>
+            <a href="{{ url_for('orders.invoice_orders_list') }}" class="btn btn-secondary">Cancel</a>
             <button type="submit" class="btn btn-primary">Create Order</button>
         </div>
     </form>

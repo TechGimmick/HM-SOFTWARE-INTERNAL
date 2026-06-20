@@ -6,6 +6,56 @@ from app.extensions import db
 
 pdf_bp = Blueprint('pdf', __name__)
 
+class RegularBillPDF(FPDF):
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Helvetica', 'I', 8)
+        self.cell(0, 10, "This is a computer generated invoice.", 0, 0, 'C')
+
+class ThermalBillPDF(FPDF):
+    def footer(self):
+        self.set_y(-10)
+        self.set_font('Helvetica', 'I', 7)
+        self.cell(0, 5, "This is a computer generated invoice.", 0, 0, 'C')
+
+def estimate_row_height(pdf, text, width, line_height):
+    lines = text.split('\n')
+    total_lines = 0
+    for line in lines:
+        w = pdf.get_string_width(line)
+        import math
+        wrapped = max(1, math.ceil(w / (width - 1)))
+        total_lines += wrapped
+    return total_lines * line_height
+
+def print_table_header(pdf, has_gst):
+    pdf.set_font("Helvetica", 'B', 10)
+    if has_gst:
+        pdf.cell(10, 10, "Sn", 1, 0, 'C')
+        pdf.cell(55, 10, "Item Description", 1, 0, 'L')
+        pdf.cell(20, 10, "HSN", 1, 0, 'C')
+        pdf.cell(15, 10, "Qty", 1, 0, 'C')
+        pdf.cell(20, 10, "GST%", 1, 0, 'C')
+        pdf.cell(25, 10, "Rate", 1, 0, 'R')
+        pdf.cell(45, 10, "Total (Rs.)", 1, 1, 'R')
+    else:
+        pdf.cell(10, 10, "Sn", 1, 0, 'C')
+        pdf.cell(60, 10, "Item Description", 1, 0, 'L')
+        pdf.cell(20, 10, "HSN", 1, 0, 'C')
+        pdf.cell(20, 10, "Qty", 1, 0, 'C')
+        pdf.cell(30, 10, "Rate", 1, 0, 'R')
+        pdf.cell(50, 10, "Total (Rs.)", 1, 1, 'R')
+    pdf.set_font("Helvetica", size=10)
+
+def print_thermal_table_header(pdf):
+    pdf.set_font("Helvetica", 'B', 7)
+    pdf.cell(4, 5, "Sn", align='C')
+    pdf.cell(28, 5, "Item", align='L')
+    pdf.cell(11, 5, "Qty", align='C')
+    pdf.cell(12, 5, "Rate", align='R')
+    pdf.cell(15, 5, "Total", align='R', ln=1)
+    pdf.set_font("Helvetica", size=7)
+
 class PO_PDF(FPDF):
     def footer(self):
         # Position at 3.0 cm from bottom
@@ -106,17 +156,18 @@ def download_bill(sales_id):
     def get_clean_name_and_hsn(raw_name):
         variation_part = ""; base_name_part = raw_name
         if ' - ' in raw_name: parts = raw_name.split(' - '); base_name_part = parts[0]; variation_part = " - " + parts[1]
+        final_display_name = raw_name
         if base_name_part.endswith(')'):
             last_open = base_name_part.rfind(' (')
             if last_open != -1: base_name_part = base_name_part[:last_open]
-        final_display_name = base_name_part + variation_part
         product_obj = Product.query.filter(Product.name.ilike(base_name_part)).first()
         hsn_val = str(product_obj.hsn_code) if product_obj and product_obj.hsn_code else "-"
         return final_display_name, hsn_val
 
     if bill_format == 'barcode':
-        pdf = FPDF(orientation='P', unit='mm', format=(72, 297))
-        pdf.set_margins(1, 2, 1)
+        pdf = ThermalBillPDF(orientation='P', unit='mm', format=(72, 297))
+        pdf.set_margins(1, 5, 1)
+        pdf.set_auto_page_break(True, margin=15)
         pdf.add_page()
         
         pdf.set_font("Helvetica", 'B', 10)
@@ -128,18 +179,23 @@ def download_bill(sales_id):
         pdf.multi_cell(0, 5, f"Client: {sale.client_name}", align='L')
         pdf.cell(0, 4, "-"*38, align='C', ln=1)
         
-        pdf.set_font("Helvetica", 'B', 7)
-        pdf.cell(4, 5, "Sn", align='C')
-        pdf.cell(28, 5, "Item", align='L')
-        pdf.cell(6, 5, "Qty", align='C')
-        pdf.cell(12, 5, "Rate", align='R')
-        pdf.cell(15, 5, "Total", align='R', ln=1)
-        
-        pdf.set_font("Helvetica", size=7)
+        print_thermal_table_header(pdf)
         
         for i, item in enumerate(sale.items):
             display_name, _ = get_clean_name_and_hsn(str(item.product_name))
             effective_rate = item.total_price / item.qty_sold if item.qty_sold > 0 else 0
+            qty_text = f"{item.qty_sold} {item.unit or ''}".strip()
+            
+            # Estimate height for thermal row
+            estimated_height = estimate_row_height(pdf, display_name, 28, 4)
+            estimated_height = max(estimated_height + 3, 6)
+            if (item.gst_rate or 0) > 0:
+                estimated_height += 3
+                
+            # If next item crosses Y limit (297 - 15 = 282), add page and print header
+            if pdf.get_y() + estimated_height > 282:
+                pdf.add_page()
+                print_thermal_table_header(pdf)
             
             start_x = pdf.get_x()
             start_y = pdf.get_y()
@@ -155,12 +211,12 @@ def download_bill(sales_id):
             pdf.cell(4, 4, str(i+1), 0, 0, 'C')
             
             pdf.set_xy(start_x + 4 + 28, start_y)
-            pdf.cell(6, 4, str(item.qty_sold), 0, 0, 'C')
+            pdf.cell(11, 4, qty_text, 0, 0, 'C')
             
-            pdf.set_xy(start_x + 4 + 28 + 6, start_y)
-            pdf.cell(12, 4, f"{effective_rate:.0f}", 0, 0, 'R')
+            pdf.set_xy(start_x + 4 + 28 + 11, start_y)
+            pdf.cell(12, 4, f"{effective_rate:.2f}", 0, 0, 'R')
             
-            pdf.set_xy(start_x + 4 + 28 + 6 + 12, start_y)
+            pdf.set_xy(start_x + 4 + 28 + 11 + 12, start_y)
             pdf.cell(15, 4, f"{item.total_price:.2f}", 0, 0, 'R')
 
             pdf.set_y(start_y + row_height)
@@ -171,6 +227,19 @@ def download_bill(sales_id):
                 pdf.cell(0, 3, f"  ({item.gst_rate:.0f}% GST incl.)", align='L', ln=1)
                 pdf.set_font("Helvetica", size=7)
             
+        # Estimate height for thermal totals block
+        thermal_totals_height = 6
+        if total_paid > 0:
+            if sale.paid_cash > 0: thermal_totals_height += 4
+            if sale.paid_online > 0: thermal_totals_height += 4
+        if balance_due > 0:
+            thermal_totals_height += 5
+        if has_gst:
+            thermal_totals_height += 4
+            
+        if pdf.get_y() + thermal_totals_height > 282:
+            pdf.add_page()
+
         pdf.cell(0, 4, "-"*38, align='C', ln=1)
         pdf.set_font("Helvetica", 'B', 9)
         pdf.cell(0, 6, f"Total: Rs. {grand_total:.2f}", align='R', ln=1)
@@ -190,7 +259,9 @@ def download_bill(sales_id):
         pdf.ln(5)
 
     else:
-        pdf = FPDF()
+        pdf = RegularBillPDF()
+        pdf.set_margins(10, 15, 10)
+        pdf.set_auto_page_break(True, margin=20)
         pdf.add_page()
         pdf.set_font("Helvetica", 'B', 14)
         pdf.cell(0, 10, "ESTIMATE", align='C', ln=1)
@@ -201,32 +272,26 @@ def download_bill(sales_id):
         pdf.cell(0, 8, f"Billed To: {sale.client_name}", align='L', ln=1)
         pdf.ln(5)
         
-        # Regular A4 bill header — with or without GST column
-        pdf.set_font("Helvetica", 'B', 10)
-        if has_gst:
-            pdf.cell(10, 10, "Sn", 1, 0, 'C')
-            pdf.cell(55, 10, "Item Description", 1, 0, 'L')
-            pdf.cell(20, 10, "HSN", 1, 0, 'C')
-            pdf.cell(15, 10, "Qty", 1, 0, 'C')
-            pdf.cell(20, 10, "GST%", 1, 0, 'C')
-            pdf.cell(25, 10, "Rate", 1, 0, 'R')
-            pdf.cell(45, 10, "Total (Rs.)", 1, 1, 'R')
-        else:
-            pdf.cell(10, 10, "Sn", 1, 0, 'C')
-            pdf.cell(60, 10, "Item Description", 1, 0, 'L')
-            pdf.cell(20, 10, "HSN", 1, 0, 'C')
-            pdf.cell(20, 10, "Qty", 1, 0, 'C')
-            pdf.cell(30, 10, "Rate", 1, 0, 'R')
-            pdf.cell(50, 10, "Total (Rs.)", 1, 1, 'R')
+        print_table_header(pdf, has_gst)
         
-        pdf.set_font("Helvetica", size=10)
         for i, item in enumerate(sale.items):
             display_name, hsn_val = get_clean_name_and_hsn(str(item.product_name)) 
             final_text = display_name
             if item.description: final_text += f"\n{item.description}"
             effective_rate = item.total_price / item.qty_sold if item.qty_sold > 0 else 0
             gst_str = f"{item.gst_rate:.0f}%" if (item.gst_rate or 0) > 0 else "-"
+            qty_text = f"{item.qty_sold} {item.unit or ''}".strip()
             
+            # Estimate height for description multicell
+            col_width = 55 if has_gst else 60
+            estimated_height = estimate_row_height(pdf, final_text, col_width, 5)
+            estimated_height = max(estimated_height, 10)
+            
+            # If row height exceeds Y limit (297 - 20 = 277), add page and reprint headers
+            if pdf.get_y() + estimated_height > 277:
+                pdf.add_page()
+                print_table_header(pdf, has_gst)
+                
             start_x = pdf.get_x(); start_y = pdf.get_y()
             if has_gst:
                 pdf.set_xy(start_x + 10, start_y)
@@ -234,7 +299,7 @@ def download_bill(sales_id):
                 end_y = pdf.get_y(); row_height = end_y - start_y
                 pdf.set_xy(start_x, start_y); pdf.cell(10, row_height, str(i+1), 1, 0, 'C')
                 pdf.set_xy(start_x + 10 + 55, start_y); pdf.cell(20, row_height, hsn_val, 1, 0, 'C')
-                pdf.set_xy(start_x + 10 + 55 + 20, start_y); pdf.cell(15, row_height, str(item.qty_sold), 1, 0, 'C')
+                pdf.set_xy(start_x + 10 + 55 + 20, start_y); pdf.cell(15, row_height, qty_text, 1, 0, 'C')
                 pdf.set_xy(start_x + 10 + 55 + 20 + 15, start_y); pdf.cell(20, row_height, gst_str, 1, 0, 'C')
                 pdf.set_xy(start_x + 10 + 55 + 20 + 15 + 20, start_y); pdf.cell(25, row_height, f"{effective_rate:.2f}", 1, 0, 'R')
                 pdf.set_xy(start_x + 10 + 55 + 20 + 15 + 20 + 25, start_y); pdf.cell(45, row_height, f"{item.total_price:.2f}", 1, 1, 'R')
@@ -244,12 +309,23 @@ def download_bill(sales_id):
                 end_y = pdf.get_y(); row_height = end_y - start_y
                 pdf.set_xy(start_x, start_y); pdf.cell(10, row_height, str(i+1), 1, 0, 'C')
                 pdf.set_xy(start_x + 10 + 60, start_y); pdf.cell(20, row_height, hsn_val, 1, 0, 'C')
-                pdf.set_xy(start_x + 10 + 60 + 20, start_y); pdf.cell(20, row_height, str(item.qty_sold), 1, 0, 'C')
+                pdf.set_xy(start_x + 10 + 60 + 20, start_y); pdf.cell(20, row_height, qty_text, 1, 0, 'C')
                 pdf.set_xy(start_x + 10 + 60 + 20 + 20, start_y); pdf.cell(30, row_height, f"{effective_rate:.2f}", 1, 0, 'R')
                 pdf.set_xy(start_x + 10 + 60 + 20 + 20 + 30, start_y); pdf.cell(50, row_height, f"{item.total_price:.2f}", 1, 1, 'R')
             pdf.set_y(end_y)
             
-        pdf.cell(0, 4, "-"*38, align='C', ln=1)
+        # Estimate A4 totals block height
+        totals_height = 10
+        if total_paid > 0:
+            if sale.paid_cash > 0: totals_height += 6
+            if sale.paid_online > 0: totals_height += 6
+        if balance_due > 0:
+            totals_height += 8
+            
+        # If totals block exceeds Y limit, add page
+        if pdf.get_y() + totals_height > 277:
+            pdf.add_page()
+            
         pdf.set_font("Helvetica", 'B', 12); pdf.cell(140, 10, "Grand Total", 1, 0, 'R'); pdf.cell(50, 10, f"Rs. {grand_total:.2f}", 1, 1, 'R')
         
         if total_paid > 0:
@@ -264,7 +340,7 @@ def download_bill(sales_id):
         pdf.set_font("Helvetica", '', 8)
         if has_gst:
             pdf.cell(0, 6, "(GST Included)", align='R', ln=1)
-        pdf.ln(10); pdf.set_font("Helvetica", 'I', 8); pdf.cell(0, 5, "This is a computer generated invoice.", align='C', ln=1)
+        pdf.ln(10)
     
     pdf_content = pdf.output(dest='S')
     response_data = bytes(pdf_content) if isinstance(pdf_content, (bytes, bytearray)) else pdf_content.encode('latin-1')

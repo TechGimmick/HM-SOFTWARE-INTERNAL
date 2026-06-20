@@ -5,7 +5,7 @@
 
 <div class="ob-edit-header">
     <div style="margin-bottom:4px;">
-        <a href="{{ url_for('orders.supplier_detail', order_id=order.id) }}" class="text-muted" style="font-size:0.85rem;">
+        <a href="{{ url_for('orders.invoice_order_detail', order_id=order.id) }}" class="text-muted" style="font-size:0.85rem;">
             ← Back to Order #{{ order.id }}
         </a>
     </div>
@@ -17,7 +17,7 @@
 
 <div class="ob-edit-card">
     <h2>📝 Order Details</h2>
-    <form action="{{ url_for('orders.supplier_edit', order_id=order.id) }}" method="POST"
+    <form action="{{ url_for('orders.invoice_order_edit', order_id=order.id) }}" method="POST"
           enctype="multipart/form-data">
 
         <div class="form-grid-2">
@@ -139,7 +139,7 @@
         </div>
 
         <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:1.25rem;">
-            <a href="{{ url_for('orders.supplier_detail', order_id=order.id) }}" class="btn btn-secondary">Cancel</a>
+            <a href="{{ url_for('orders.invoice_order_detail', order_id=order.id) }}" class="btn btn-secondary">Cancel</a>
             <button type="submit" class="btn btn-primary">💾 Save Changes</button>
         </div>
     </form>

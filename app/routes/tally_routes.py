@@ -4,7 +4,7 @@ from app.extensions import db
 from app.models import TallyBill, TallyBillItem, Product, Warehouse, WarehouseStock
 from app.activity_service import log_activity
 from datetime import datetime, timedelta
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from collections import defaultdict
 from flask import jsonify
 import json
@@ -18,20 +18,21 @@ def tally_sales_page():
     filter_date_str = request.args.get('filter_date')
     filter_status = request.args.get('filter_status')
     filter_inv = request.args.get('filter_inv')
-    filter_overdue = request.args.get('filter_overdue')
     
     query = TallyBill.query
     
-    is_global_search = False
     if filter_inv:
-        query = query.filter(TallyBill.invoice_number.ilike(f"%{filter_inv}%"))
-        is_global_search = True
+        query = query.filter(or_(TallyBill.invoice_number.ilike(f"%{filter_inv}%"), TallyBill.client_name.ilike(f"%{filter_inv}%")))
     
     has_date_filter = False
     if filter_date_str:
         try:
             filter_date = datetime.strptime(filter_date_str, '%Y-%m-%d').date()
-            query = query.filter(func.date(TallyBill.date) == filter_date)
+            # Convert local IST filter date to UTC range (local 00:00 to 23:59 minus 5h 30m)
+            start_utc = datetime.combine(filter_date, datetime.min.time()) - timedelta(hours=5, minutes=30)
+            end_utc = datetime.combine(filter_date, datetime.max.time()) - timedelta(hours=5, minutes=30)
+            
+            query = query.filter(TallyBill.date >= start_utc, TallyBill.date <= end_utc)
             has_date_filter = True
             flash(f"Showing tally bills for {filter_date.strftime('%d %b %Y')}", "info")
         except ValueError:
@@ -43,34 +44,22 @@ def tally_sales_page():
         elif filter_status == 'received':
             query = query.filter(TallyBill.payment_status == 'Payment Received')
         elif filter_status == 'full_cash':
-            query = query.filter(TallyBill.payment_status == 'Payment Received', TallyBill.paid_online == 0)
+            query = query.filter(TallyBill.payment_status == 'Payment Received', func.coalesce(TallyBill.paid_online, 0.0) == 0.0)
         elif filter_status == 'full_online':
-            query = query.filter(TallyBill.payment_status == 'Payment Received', TallyBill.paid_cash == 0)
+            query = query.filter(TallyBill.payment_status == 'Payment Received', func.coalesce(TallyBill.paid_cash, 0.0) == 0.0)
             
         if not has_date_filter:
              flash(f"Showing all '{filter_status}' tally bills found.", "info")
-             
-    if filter_overdue and filter_overdue != 'all':
-        is_global_search = True
-        query = query.filter(TallyBill.payment_status != 'Payment Received', TallyBill.credit_period > 0)
-        from sqlalchemy.types import Integer
-        from sqlalchemy import cast
-        if filter_overdue == 'matured':
-            query = query.filter(func.date(TallyBill.date) + cast(TallyBill.credit_period, Integer) <= now_ist.date())
-        elif filter_overdue == 'overdue_10':
-            query = query.filter(func.date(TallyBill.date) + cast(TallyBill.credit_period + 10, Integer) <= now_ist.date())
-        elif filter_overdue == 'overdue_30':
-            query = query.filter(func.date(TallyBill.date) + cast(TallyBill.credit_period + 30, Integer) <= now_ist.date())
-            
-    elif not has_date_filter and not is_global_search:
-        two_days_ago = now_ist.date() - timedelta(days=2)
-        query = query.filter(func.date(TallyBill.date) >= two_days_ago)
 
-    tally_bills_raw = query.order_by(TallyBill.date.desc(), TallyBill.id.desc()).all()
+    query = query.order_by(TallyBill.date.desc(), TallyBill.id.desc())
+    if not filter_inv and not filter_date_str and (not filter_status or filter_status == 'all'):
+        query = query.limit(10)
+        
+    tally_bills_raw = query.all()
     
     tally_bills = defaultdict(list)
     for t in tally_bills_raw:
-        date_key = t.date.strftime('%d %b %Y')
+        date_key = t.date_ist.strftime('%d %b %Y')
         tally_bills[date_key].append(t)
     
     # Pre-load full product inventory for autocomplete 
@@ -93,7 +82,7 @@ def tally_sales_page():
                             current_filter_date=filter_date_str,
                             current_filter_status=filter_status,
                             current_filter_inv=filter_inv,
-                            current_filter_overdue=filter_overdue,
+                            current_filter_overdue=None,
                             warehouses=Warehouse.query.order_by(Warehouse.name).all())
 
 @tally_bp.route("/save_tally", methods=["POST"])
@@ -154,7 +143,7 @@ def save_tally():
                     payment_status = "Payment Received"
 
         new_tally = TallyBill(
-            client_name=None, # Client name explicitly ignored per request
+            client_name=request.form.get('customer_name'),
             invoice_number=invoice_number,
             date=date_obj,
             payment_status=payment_status,
@@ -318,12 +307,13 @@ def get_due_bills():
     now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
     from sqlalchemy.types import Integer
     from sqlalchemy import cast
+    offset = timedelta(hours=5, minutes=30)
     
     # Due bills: Not fully paid, has a credit period > 0, and current date is past maturity date
     due_bills = TallyBill.query.filter(
         TallyBill.payment_status != 'Payment Received',
         TallyBill.credit_period > 0,
-        (func.date(TallyBill.date) + cast(TallyBill.credit_period, Integer)) <= now_ist.date()
+        (func.date(TallyBill.date + offset) + cast(TallyBill.credit_period, Integer)) <= now_ist.date()
     ).order_by(TallyBill.date.asc()).all()
     
     results = []

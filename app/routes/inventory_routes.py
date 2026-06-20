@@ -100,6 +100,7 @@ def dashboard_data():
     })
 
 
+
 @inventory_bp.route("/inventory")    
 @login_required
 def inventory():

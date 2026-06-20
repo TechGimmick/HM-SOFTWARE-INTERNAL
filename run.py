@@ -11,4 +11,4 @@ app = create_app()
 if __name__ == "__main__":
     # reloader_type='stat' avoids the Python 3.13 + watchdog threading incompatibility
     # (SystemError on threading shutdown). Hot-reload still works normally.
-    app.run(debug=True, reloader_type='stat')
+    app.run(host='0.0.0.0', port=5000, debug=True, reloader_type='stat')

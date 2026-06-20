@@ -247,9 +247,9 @@ def retail_mark_sent_to_customer(order_id):
 #  ORDERS BOOK (bulk / outside supply orders — independent of retail sales)
 # ══════════════════════════════════════════════════════════════════════════════
 
-@orders_bp.route('/supplier')
+@orders_bp.route('/invoice_orders')
 @login_required
-def supplier_list():
+def invoice_orders_list():
     """View all Orders Book entries and create new ones."""
     if current_user.role not in ('admin', 'sales', 'store', 'worker'):
         flash('Only authorized staff can access the Orders Book.', 'danger')
@@ -265,13 +265,13 @@ def supplier_list():
                            products=products)
 
 
-@orders_bp.route('/supplier/create', methods=['POST'])
+@orders_bp.route('/invoice_orders/create', methods=['POST'])
 @login_required
-def supplier_create():
+def invoice_order_create():
     """Create a new order in the Orders Book (admin, sales and store only)."""
     if current_user.role not in ('admin', 'sales', 'store'):
         flash('Access denied.', 'danger')
-        return redirect(url_for('orders.supplier_list'))
+        return redirect(url_for('orders.invoice_orders_list'))
 
     invoice_number    = (request.form.get('invoice_number') or '').strip()
     supplier_name     = (request.form.get('supplier_name') or '').strip()
@@ -296,7 +296,7 @@ def supplier_create():
 
     if not supplier_name:
         flash('Customer / Party name is required.', 'warning')
-        return redirect(url_for('orders.supplier_list'))
+        return redirect(url_for('orders.invoice_orders_list'))
 
     # Collect line items
     names = request.form.getlist('item_name[]')
@@ -359,36 +359,36 @@ def supplier_create():
                  ref_id=so.id, ref_type='SupplierOrder')
     db.session.commit()
     flash(f'Order #{so.id} created successfully.', 'success')
-    return redirect(url_for('orders.supplier_detail', order_id=so.id))
+    return redirect(url_for('orders.invoice_order_detail', order_id=so.id))
 
 
-@orders_bp.route('/supplier/<int:order_id>')
+@orders_bp.route('/invoice_orders/<int:order_id>')
 @login_required
-def supplier_detail(order_id):
+def invoice_order_detail(order_id):
     """Detail view of a single Orders Book entry."""
     so = db.session.get(SupplierOrder, order_id)
     if not so:
         flash('Order not found.', 'danger')
-        return redirect(url_for('orders.supplier_list'))
+        return redirect(url_for('orders.invoice_orders_list'))
     return render_template('orders/invoice_order_detail.html', order=so)
 
 
-@orders_bp.route('/supplier/<int:order_id>/edit', methods=['GET', 'POST'])
+@orders_bp.route('/invoice_orders/<int:order_id>/edit', methods=['GET', 'POST'])
 @login_required
-def supplier_edit(order_id):
+def invoice_order_edit(order_id):
     """Edit an Orders Book entry — only allowed when status is Draft."""
     if current_user.role not in ('admin', 'sales', 'store'):
         flash('Access denied.', 'danger')
-        return redirect(url_for('orders.supplier_detail', order_id=order_id))
+        return redirect(url_for('orders.invoice_order_detail', order_id=order_id))
 
     so = db.session.get(SupplierOrder, order_id)
     if not so:
         flash('Order not found.', 'danger')
-        return redirect(url_for('orders.supplier_list'))
+        return redirect(url_for('orders.invoice_orders_list'))
 
     if so.status != 'Draft':
         flash('Only Draft orders can be edited.', 'warning')
-        return redirect(url_for('orders.supplier_detail', order_id=order_id))
+        return redirect(url_for('orders.invoice_order_detail', order_id=order_id))
 
     if request.method == 'GET':
         products = Product.query.order_by(Product.name).all()
@@ -421,7 +421,7 @@ def supplier_edit(order_id):
 
     if not so.supplier_name:
         flash('Customer / Party name is required.', 'warning')
-        return redirect(url_for('orders.supplier_edit', order_id=order_id))
+        return redirect(url_for('orders.invoice_order_edit', order_id=order_id))
 
     # Rebuild items
     for item in list(so.items):
@@ -468,33 +468,33 @@ def supplier_edit(order_id):
                  ref_id=so.id, ref_type='SupplierOrder')
     db.session.commit()
     flash(f'Order #{so.id} updated successfully.', 'success')
-    return redirect(url_for('orders.supplier_detail', order_id=so.id))
+    return redirect(url_for('orders.invoice_order_detail', order_id=so.id))
 
 
-@orders_bp.route('/supplier/<int:order_id>/delete', methods=['POST'])
+@orders_bp.route('/invoice_orders/<int:order_id>/delete', methods=['POST'])
 @login_required
-def supplier_delete(order_id):
+def invoice_order_delete(order_id):
     """Delete an Orders Book entry (admin only)."""
     if current_user.role != 'admin':
         flash('Only admins can delete orders.', 'danger')
-        return redirect(url_for('orders.supplier_detail', order_id=order_id))
+        return redirect(url_for('orders.invoice_order_detail', order_id=order_id))
 
     so = db.session.get(SupplierOrder, order_id)
     if not so:
         flash('Order not found.', 'danger')
-        return redirect(url_for('orders.supplier_list'))
+        return redirect(url_for('orders.invoice_orders_list'))
 
     snap = f'Order #{so.id} ({so.supplier_name})'
     db.session.delete(so)
     log_activity('DELETE', 'Orders', f'Deleted {snap}', ref_id=order_id, ref_type='SupplierOrder')
     db.session.commit()
     flash(f'{snap} deleted.', 'success')
-    return redirect(url_for('orders.supplier_list'))
+    return redirect(url_for('orders.invoice_orders_list'))
 
 
-@orders_bp.route('/supplier/<int:order_id>/status', methods=['POST'])
+@orders_bp.route('/invoice_orders/<int:order_id>/status', methods=['POST'])
 @login_required
-def supplier_advance_status(order_id):
+def invoice_order_advance_status(order_id):
     """
     Advance a SupplierOrder status.
     Draft → Packing   : admin / sales
@@ -504,29 +504,29 @@ def supplier_advance_status(order_id):
     so = db.session.get(SupplierOrder, order_id)
     if not so:
         flash('Order not found.', 'danger')
-        return redirect(url_for('orders.supplier_list'))
+        return redirect(url_for('orders.invoice_orders_list'))
 
     if so.status in ('Dispatched', 'Received'):
         flash('Order is already dispatched/received.', 'info')
-        return redirect(url_for('orders.supplier_detail', order_id=order_id))
+        return redirect(url_for('orders.invoice_order_detail', order_id=order_id))
 
     current_idx = SUPPLIER_STATUS_FLOW.index(so.status) if so.status in SUPPLIER_STATUS_FLOW else -1
 
     if current_idx == -1:
         flash('Unknown order status.', 'danger')
-        return redirect(url_for('orders.supplier_detail', order_id=order_id))
+        return redirect(url_for('orders.invoice_order_detail', order_id=order_id))
 
     next_status = SUPPLIER_STATUS_FLOW[current_idx + 1]
 
     # Role gate: only admin/sales/store can trigger Draft → Packing
     if so.status == 'Draft' and current_user.role not in ('admin', 'sales', 'store'):
         flash('Only admin, sales or store staff can start packing.', 'danger')
-        return redirect(url_for('orders.supplier_detail', order_id=order_id))
+        return redirect(url_for('orders.invoice_order_detail', order_id=order_id))
 
     # Packed → Dispatched is handled by the /dispatch endpoint (needs form data)
     if next_status == 'Dispatched':
         flash('Use the Dispatch form below to record dispatch details.', 'info')
-        return redirect(url_for('orders.supplier_detail', order_id=order_id))
+        return redirect(url_for('orders.invoice_order_detail', order_id=order_id))
 
     so.status = next_status
     so.updated_at = datetime.datetime.utcnow()
@@ -535,27 +535,27 @@ def supplier_advance_status(order_id):
                  ref_id=so.id, ref_type='SupplierOrder')
     db.session.commit()
     flash(f'Order status updated to {next_status}.', 'success')
-    return redirect(url_for('orders.supplier_detail', order_id=order_id))
+    return redirect(url_for('orders.invoice_order_detail', order_id=order_id))
 
 
-@orders_bp.route('/supplier/<int:order_id>/dispatch', methods=['POST'])
+@orders_bp.route('/invoice_orders/<int:order_id>/dispatch', methods=['POST'])
 @login_required
-def supplier_dispatch(order_id):
+def invoice_order_dispatch(order_id):
     """
     Record dispatch details and mark order as Dispatched (admin, sales, store).
     """
     if current_user.role not in ('admin', 'sales', 'store'):
         flash('Only admin, sales or store staff can dispatch orders.', 'danger')
-        return redirect(url_for('orders.supplier_detail', order_id=order_id))
+        return redirect(url_for('orders.invoice_order_detail', order_id=order_id))
 
     so = db.session.get(SupplierOrder, order_id)
     if not so:
         flash('Order not found.', 'danger')
-        return redirect(url_for('orders.supplier_list'))
+        return redirect(url_for('orders.invoice_orders_list'))
 
     if so.status != 'Packed':
         flash('Order must be in Packed status before dispatching.', 'warning')
-        return redirect(url_for('orders.supplier_detail', order_id=order_id))
+        return redirect(url_for('orders.invoice_order_detail', order_id=order_id))
 
     person_name    = (request.form.get('dispatch_person_name') or '').strip()
     person_phone   = (request.form.get('dispatch_person_phone') or '').strip()
@@ -567,7 +567,7 @@ def supplier_dispatch(order_id):
 
     if not person_name:
         flash('Person in charge name is required.', 'warning')
-        return redirect(url_for('orders.supplier_detail', order_id=order_id))
+        return redirect(url_for('orders.invoice_order_detail', order_id=order_id))
 
     # Parse dispatch date-time
     dispatched_at_val = datetime.datetime.utcnow()
@@ -609,36 +609,36 @@ def supplier_dispatch(order_id):
                  ref_id=so.id, ref_type='SupplierOrder')
     db.session.commit()
     flash(f'Order #{so.id} marked as Dispatched.', 'success')
-    return redirect(url_for('orders.supplier_detail', order_id=order_id))
+    return redirect(url_for('orders.invoice_order_detail', order_id=order_id))
 
 
-@orders_bp.route('/supplier/<int:order_id>/dispatch_detail')
+@orders_bp.route('/invoice_orders/<int:order_id>/dispatch_detail')
 @login_required
-def supplier_dispatch_detail(order_id):
+def invoice_order_dispatch_detail(order_id):
     """Show full dispatch proof page."""
     so = db.session.get(SupplierOrder, order_id)
     if not so:
         flash('Order not found.', 'danger')
-        return redirect(url_for('orders.supplier_list'))
+        return redirect(url_for('orders.invoice_orders_list'))
     return render_template('orders/invoice_order_dispatch.html', order=so)
 
 
-@orders_bp.route('/supplier/<int:order_id>/received', methods=['POST'])
+@orders_bp.route('/invoice_orders/<int:order_id>/received', methods=['POST'])
 @login_required
-def supplier_mark_received(order_id):
+def invoice_order_mark_received(order_id):
     """Mark a dispatched order as received — records receiver name, receiving photo and transport bill photo."""
     if current_user.role not in ('admin', 'sales', 'store'):
         flash('Only admin, sales or store staff can mark orders as received.', 'danger')
-        return redirect(url_for('orders.supplier_detail', order_id=order_id))
+        return redirect(url_for('orders.invoice_order_detail', order_id=order_id))
 
     so = db.session.get(SupplierOrder, order_id)
     if not so:
         flash('Order not found.', 'danger')
-        return redirect(url_for('orders.supplier_list'))
+        return redirect(url_for('orders.invoice_orders_list'))
 
     if so.status != 'Dispatched':
         flash('Order must be in Dispatched status to mark as Received.', 'warning')
-        return redirect(url_for('orders.supplier_detail', order_id=order_id))
+        return redirect(url_for('orders.invoice_order_detail', order_id=order_id))
 
     received_by = (request.form.get('received_by') or '').strip()
     delivery_note = (request.form.get('delivery_note') or '').strip()
@@ -673,5 +673,5 @@ def supplier_mark_received(order_id):
                  ref_id=so.id, ref_type='SupplierOrder')
     db.session.commit()
     flash(f'Order #{so.id} marked as Received by customer.', 'success')
-    return redirect(url_for('orders.supplier_detail', order_id=order_id))
+    return redirect(url_for('orders.invoice_order_detail', order_id=order_id))
 

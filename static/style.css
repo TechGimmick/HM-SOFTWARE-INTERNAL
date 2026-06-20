@@ -708,8 +708,8 @@ tbody tr:hover {
     cursor: pointer;
 }
 
-.search-item:hover {
-    background: var(--light);
+.search-item:hover, .search-item.highlighted {
+    background: #e2e8f0;
 }
 
 .selection-preview {

@@ -446,6 +446,7 @@
 
 
         let allProducts = [];
+        let activeIndex = -1;
         if (window.EDIT_PRODUCT_DATA) {
             const rawData = window.EDIT_PRODUCT_DATA;
             // Check format (List or Catalog Dict)
@@ -673,26 +674,92 @@
         renderCart();
 
         // Search
-        searchInput.addEventListener('input', function () {
-            const term = this.value.toLowerCase();
-            resultsBox.innerHTML = '';
-            if (term.length < 1) { resultsBox.style.display = 'none'; return; }
+        if (searchInput) {
+            searchInput.addEventListener('input', function () {
+                const term = this.value.toLowerCase();
+                resultsBox.innerHTML = '';
+                activeIndex = -1;
+                if (term.length < 1) { resultsBox.style.display = 'none'; return; }
 
-            const matches = allProducts.filter(p => p.name.toLowerCase().includes(term));
+                const matches = allProducts.filter(p => p.name.toLowerCase().includes(term));
 
-            if (matches.length > 0) {
-                resultsBox.style.display = 'block';
-                matches.forEach(p => {
-                    const div = document.createElement('div');
-                    div.className = 'search-item';
-                    div.innerHTML = `<strong>${p.name}</strong> <small>(${p.category})</small>`;
-                    div.onclick = () => checkPriceAndSelect(p);
-                    resultsBox.appendChild(div);
+                if (matches.length > 0) {
+                    resultsBox.style.display = 'block';
+                    matches.forEach((p, idx) => {
+                        const div = document.createElement('div');
+                        div.className = 'search-item';
+                        div.dataset.index = idx;
+                        div.innerHTML = `<strong>${p.name}</strong> <small>(${p.category})</small>`;
+                        div.onclick = () => {
+                            checkPriceAndSelect(p);
+                            activeIndex = -1;
+                        };
+                        resultsBox.appendChild(div);
+                    });
+                } else {
+                    resultsBox.style.display = 'none';
+                }
+            });
+
+            // Keyboard navigation & Barcode Enter Key
+            searchInput.addEventListener('keydown', function (e) {
+                const items = resultsBox.querySelectorAll('.search-item');
+                if (resultsBox.style.display === 'block' && items.length > 0) {
+                    if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        activeIndex++;
+                        if (activeIndex >= items.length) activeIndex = 0;
+                        highlightItem(items);
+                        return;
+                    } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        activeIndex--;
+                        if (activeIndex < 0) activeIndex = items.length - 1;
+                        highlightItem(items);
+                        return;
+                    } else if (e.key === 'Enter') {
+                        if (activeIndex >= 0 && activeIndex < items.length) {
+                            e.preventDefault();
+                            items[activeIndex].click();
+                            return;
+                        }
+                    } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        resultsBox.style.display = 'none';
+                        activeIndex = -1;
+                        return;
+                    }
+                }
+
+                if (e.key === 'Enter') {
+                    const term = this.value.trim();
+                    if (term === '') {
+                        e.preventDefault();
+                        document.querySelector('form[action="{{ url_for("sales.process_edit_sale") }}"]').submit();
+                    } else {
+                        // Barcode Scan check
+                        e.preventDefault();
+                        const found = allProducts.find(p => p.barcode === term);
+                        if (found) {
+                            checkPriceAndSelect(found);
+                            activeIndex = -1;
+                        }
+                    }
+                }
+            });
+
+            function highlightItem(items) {
+                items.forEach((item, idx) => {
+                    if (idx === activeIndex) {
+                        item.classList.add('highlighted');
+                        item.scrollIntoView({ block: 'nearest' });
+                    } else {
+                        item.classList.remove('highlighted');
+                    }
                 });
-            } else {
-                resultsBox.style.display = 'none';
             }
-        });
+        }
+
 
         // Add Buttons
         addBtn.addEventListener('click', function () {
@@ -759,6 +826,7 @@
         document.addEventListener('click', function (e) {
             if (e.target !== searchInput && e.target.parentNode !== resultsBox) {
                 resultsBox.style.display = 'none';
+                activeIndex = -1;
             }
         });
 
@@ -794,16 +862,7 @@
             });
         });
 
-        // 2. Submit Bill on Enter in Empty Search
-        if (searchInput) {
-            searchInput.addEventListener('keydown', function (e) {
-                if (e.key === 'Enter' && this.value.trim() === '') {
-                    e.preventDefault();
-                    // Just submit the form
-                    document.querySelector('form[action="{{ url_for("sales.process_edit_sale") }}"]').submit();
-                }
-            });
-        }
+
     });
 
 // ── QUICK ADD PRODUCT ────────────────────────────────────────────────────

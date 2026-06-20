@@ -505,15 +505,7 @@
             if (val) window.location.href = '/cashbook?date=' + val;
         }
 
-        /* ── Previous / Next day links ──────────────────────────────────── */
-        (function () {
-            const d = new Date('{{ date_str }}T00:00:00');
-            const prev = new Date(d); prev.setDate(prev.getDate() - 1);
-            const next = new Date(d); next.setDate(next.getDate() + 1);
-            const fmt_d = dt => dt.toISOString().slice(0, 10);
-            document.getElementById('prev-day').href = '/cashbook?date=' + fmt_d(prev);
-            document.getElementById('next-day').href = '/cashbook?date=' + fmt_d(next);
-        })();
+
 
         /* ── Add Expense ────────────────────────────────────────────────── */
         async function addExpense() {
@@ -569,7 +561,7 @@
                 await refreshTotals();
 
             } catch (err) {
-                alert('Error: ' + err.message);
+                Swal.fire({ icon: 'error', title: 'Error', text: err.message, customClass: { popup: 'rounded-4 border-0 shadow-lg' }});
             } finally {
                 btn.disabled = false;
                 btn.textContent = '+ Add';
@@ -578,7 +570,18 @@
 
         /* ── Delete Expense ─────────────────────────────────────────────── */
         async function deleteExpense(id) {
-            if (!confirm('Delete this expense entry? This cannot be undone.')) return;
+            const confirmResult = await Swal.fire({
+                title: 'Please Confirm',
+                text: 'Delete this expense entry? This cannot be undone.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#0ea5e9',
+                cancelButtonColor: '#94a3b8',
+                confirmButtonText: 'Yes, delete',
+                reverseButtons: true,
+                customClass: { popup: 'rounded-4 border-0 shadow-lg' }
+            });
+            if (!confirmResult.isConfirmed) return;
 
             try {
                 const res = await fetch('/cashbook/delete_expense/' + id, { method: 'POST' });
@@ -600,7 +603,7 @@
 
                 await refreshTotals();
             } catch (err) {
-                alert('Error: ' + err.message);
+                Swal.fire({ icon: 'error', title: 'Error', text: err.message, customClass: { popup: 'rounded-4 border-0 shadow-lg' }});
             }
         }
 
