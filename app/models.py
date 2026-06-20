@@ -132,6 +132,12 @@ class TallyBill(db.Model):
     warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouses.id'), nullable=True)
     items = db.relationship('TallyBillItem', backref='bill', lazy=True, cascade="all, delete-orphan")
 
+    @property
+    def date_ist(self):
+        if self.date:
+            return self.date + datetime.timedelta(hours=5, minutes=30)
+        return None
+
 
 
 class TallyBillItem(db.Model):

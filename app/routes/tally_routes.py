@@ -116,12 +116,27 @@ def save_tally():
         payment_mode = None
         paid_cash = 0.0
         paid_online = 0.0
-        date_obj = datetime.utcnow()
+
+        # Read manually provided bill date if any
+        bill_date_str = request.form.get('bill_date')
+        if bill_date_str:
+            try:
+                ist_now = datetime.utcnow() + timedelta(hours=5, minutes=30)
+                date_ist = datetime.combine(datetime.strptime(bill_date_str, '%Y-%m-%d').date(), ist_now.time())
+                date_obj = date_ist - timedelta(hours=5, minutes=30)
+            except Exception:
+                date_obj = datetime.utcnow()
+        else:
+            date_obj = datetime.utcnow()
 
         if payment_done == 'Yes':
             payment_date_str = request.form.get('payment_date')
-            if payment_date_str:
-                date_obj = datetime.strptime(payment_date_str, '%Y-%m-%d')
+            # If user didn't specify bill_date, fall back to payment_date for date_obj
+            if payment_date_str and not bill_date_str:
+                try:
+                    date_obj = datetime.strptime(payment_date_str, '%Y-%m-%d')
+                except Exception:
+                    pass
             payment_mode = request.form.get('payment_mode')
             if payment_mode == 'Both':
                 paid_cash = float(request.form.get('cash_amount') or 0.0)

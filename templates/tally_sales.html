@@ -248,6 +248,14 @@
                 </div>
             </div>
 
+            <!-- Date of Bill Creation -->
+            <div class="row gx-3 mb-3">
+                <div class="col-md-12 form-group">
+                    <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Date of Bill Creation</label>
+                    <input type="date" class="form-control p-2" name="bill_date" id="bill_date_input" required>
+                </div>
+            </div>
+
             <!-- Mini Cart Entry Area -->
             <div class="p-3 bg-light border border-secondary border-opacity-25 rounded mb-3">
                 <h6 class="fw-bold text-dark mb-3"><i class="bi bi-cart-plus"></i> Add Products to Bill</h6>
@@ -518,6 +526,10 @@
         // Set today's date as the default for payment date
         const today = new Date().toISOString().split('T')[0];
         document.getElementById('payment_date').value = today;
+        const billDateInput = document.getElementById('bill_date_input');
+        if (billDateInput) {
+            billDateInput.value = today;
+        }
 
         const paymentDoneSelect = document.getElementById('paymentDoneSelect');
         const paymentDetailsSection = document.getElementById('paymentDetailsSection');
