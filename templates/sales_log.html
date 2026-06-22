@@ -248,14 +248,28 @@
                             </span>
                             {% endif %}
 
+                            {# ── Direct bypass button — always visible for non-completed orders ── #}
+                            <button class="btn btn-sm"
+                                    style="background:#7c3aed; color:#fff; border:none;"
+                                    onclick="markSentDirect({{ sales_id }}, this)"
+                                    title="Skip queue — mark as sent to customer directly">
+                                ⚡ Directly Sent
+                            </button>
+
                             <a href="{{ url_for('orders.retail_queue') }}"
                                class="btn btn-sm btn-secondary" target="_blank"
                                title="Open worker queue in new tab">Queue ↗</a>
                         </div>
                         {% else %}
-                        <div style="display:flex; align-items:center; gap:8px;">
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                             <label style="font-weight:600; color:#475569; font-size:0.85rem;">📦 Order:</label>
-                            <span class="text-muted" style="font-size:0.83rem;">No order linked</span>
+                            <span class="text-muted" style="font-size:0.83rem;">No queue order</span>
+                            <button class="btn btn-sm"
+                                    style="background:#7c3aed; color:#fff; border:none;"
+                                    onclick="markSentDirect({{ sales_id }}, this)"
+                                    title="Mark as delivered directly without going through warehouse queue">
+                                ⚡ Directly Sent
+                            </button>
                         </div>
                         {% endif %}
 
@@ -749,6 +763,71 @@
             btn.textContent = originalText;
         }
     }
+
+
+    // === Direct Mark Sent to Customer (bypasses entire queue) ===
+    const MARK_SENT_DIRECT_BASE = "{{ url_for('orders.retail_mark_sent_direct', sale_id=0) }}".replace('/0/mark_sent_direct', '/');
+
+    async function markSentDirect(saleId, btn) {
+        const confirmResult = await Swal.fire({
+            title: 'Skip Queue & Mark Sent?',
+            text: 'This will immediately mark the order as delivered to the customer, skipping the warehouse queue.',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#7c3aed',
+            cancelButtonColor: '#94a3b8',
+            confirmButtonText: 'Yes, mark as sent',
+            reverseButtons: true,
+            customClass: { popup: 'rounded-4 border-0 shadow-lg' }
+        });
+        if (!confirmResult.isConfirmed) return;
+
+        const originalText = btn.textContent.trim();
+        btn.disabled = true;
+        btn.textContent = '…';
+
+        try {
+            const url = MARK_SENT_DIRECT_BASE + saleId + '/mark_sent_direct';
+            const res  = await fetch(url, {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                // Update the inner order-status badge
+                const badge = document.getElementById('order-status-badge-' + saleId);
+                if (badge) {
+                    badge.textContent = 'Sent to Customer';
+                    badge.className = 'status-badge status-order-sent';
+                    badge.removeAttribute('style');
+                }
+                // Update the summary (header) badge
+                const summaryBadge = document.getElementById('summary-order-badge-' + saleId);
+                if (summaryBadge) {
+                    summaryBadge.textContent = 'Order Sent';
+                    summaryBadge.className = 'status-badge status-order-sent';
+                    summaryBadge.removeAttribute('style');
+                }
+                // Replace the entire order controls area with a completion message
+                const container = btn.closest('div[style*="display:flex"]');
+                if (container) {
+                    container.innerHTML = '<span style="font-size:0.85rem;color:#166534;font-weight:600;">✅ Delivered to Customer (direct)</span>';
+                } else {
+                    btn.remove();
+                }
+            } else {
+                Swal.fire({ icon: 'error', title: 'Error', text: data.error || 'Could not update.', customClass: { popup: 'rounded-4 border-0 shadow-lg' }});
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        } catch (e) {
+            Swal.fire({ icon: 'error', title: 'Network Error', text: 'Network error. Please try again.', customClass: { popup: 'rounded-4 border-0 shadow-lg' }});
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
+
 
 </script>
 {% endblock %}

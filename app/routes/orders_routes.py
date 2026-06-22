@@ -203,14 +203,9 @@ def retail_advance_status(order_id):
 @orders_bp.route('/api/retail/<int:order_id>/sent_to_customer', methods=['POST'])
 def retail_mark_sent_to_customer(order_id):
     """
-    Mark a RetailOrder as SentToCustomer — the final step triggered ONLY from
-    the Sales Log page (sales rep confirms goods delivered to customer).
-
-    This deletes the order from the DB to keep the queue table lean.
-    The Sale record is unaffected — it lives in the 'sales' table.
-
-    NOTE: @login_required is intentionally NOT used here — same reason as
-    retail_queue_data. Returns JSON 401 on unauthenticated requests.
+    Mark a RetailOrder as SentToCustomer — triggered from the Sales Log page
+    when the order is in SentToSalesGuy status (normal queue flow).
+    Deletes the RetailOrder and marks the linked Sale as 'Order Sent'.
     """
     if not current_user.is_authenticated:
         return jsonify({'error': 'session_expired', 'message': 'Session expired. Please refresh the page.'}), 401
@@ -225,13 +220,10 @@ def retail_mark_sent_to_customer(order_id):
     db.session.expire(ro)
     _ = ro.status  # trigger fresh load
 
-    if ro.status != 'SentToSalesGuy':
-        return jsonify({'error': f'Order must be in "Sent to Sales Guy" status to mark as Sent to Customer (current: {ro.status})'}), 400
-
     order_number = ro.order_number
     order_id_log = ro.id
-    sale_id_log   = ro.sale_id
-    # Update the linked Sale's order_status to 'Order Sent' BEFORE deleting the RetailOrder
+    sale_id_log  = ro.sale_id
+
     linked_sale = db.session.get(Sale, sale_id_log)
     if linked_sale:
         linked_sale.order_status = 'Order Sent'
@@ -241,6 +233,42 @@ def retail_mark_sent_to_customer(order_id):
     db.session.delete(ro)
     db.session.commit()
     return jsonify({'success': True, 'new_status': 'SentToCustomer', 'order_id': order_id_log, 'deleted': True})
+
+
+@orders_bp.route('/api/retail/sale/<int:sale_id>/mark_sent_direct', methods=['POST'])
+def retail_mark_sent_direct(sale_id):
+    """
+    Direct 'Mark Sent to Customer' from the Sales Log — bypasses the entire
+    queue (Pending → Packaging → Done → SentToSalesGuy) when the salesperson
+    already has the goods in hand.
+
+    Works whether or not a RetailOrder exists:
+      - If a RetailOrder exists (any status): deletes it and marks Sale 'Order Sent'.
+      - If no RetailOrder exists: just marks Sale 'Order Sent'.
+    """
+    if not current_user.is_authenticated:
+        return jsonify({'error': 'session_expired', 'message': 'Session expired. Please refresh the page.'}), 401
+
+    if current_user.role not in ('admin', 'sales', 'store'):
+        return jsonify({'error': 'Only sales or store staff can perform this action'}), 403
+
+    sale = db.session.get(Sale, sale_id)
+    if not sale:
+        return jsonify({'error': 'Sale not found'}), 404
+
+    # Delete any linked RetailOrder (clean up the queue)
+    ro = RetailOrder.query.filter_by(sale_id=sale_id).first()
+    order_number = None
+    if ro:
+        order_number = ro.order_number
+        db.session.delete(ro)
+
+    sale.order_status = 'Order Sent'
+    log_activity('UPDATE', 'Orders',
+                 f'Sale #{sale_id} marked directly sent to customer (queue bypassed)',
+                 ref_id=sale_id, ref_type='Sale')
+    db.session.commit()
+    return jsonify({'success': True, 'sale_id': sale_id})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
