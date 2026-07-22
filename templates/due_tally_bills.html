@@ -1,0 +1,1170 @@
+{% extends "_layout.html" %}
+
+{% block content %}
+
+<!-- Page Header -->
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
+    <div>
+        <a href="{{ url_for('tally.tally_sales_page') }}" class="btn btn-sm btn-outline-secondary mb-2">
+            <i class="bi bi-arrow-left me-1"></i> Back to Tally Bills
+        </a>
+        <h2 class="mb-0 fw-bold" style="color: #1e293b;">
+            <i class="bi bi-bell-fill text-danger me-2"></i>Due Bills Center
+        </h2>
+        <p class="text-muted small mb-0 mt-1">Manage outstanding payment dues &amp; credit alerts</p>
+    </div>
+    <div class="text-end">
+        <div class="badge bg-danger fs-6 px-3 py-2 shadow-sm">
+            <i class="bi bi-calendar-x me-1"></i>
+            Today: {{ today_str }}
+        </div>
+    </div>
+</div>
+
+<!-- Summary Stats Row -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm h-100" style="background: linear-gradient(135deg, #dc2626, #ef4444); color: white; border-radius: 14px;">
+            <div class="card-body p-4">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="mb-1 fw-semibold opacity-75 text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.08em;">Overdue Bills</p>
+                        <h2 class="mb-0 fw-bold">{{ overdue_bills|length }}</h2>
+                        <p class="mb-0 small opacity-75 mt-1">Past due date, unpaid</p>
+                    </div>
+                    <div style="font-size: 2.5rem; opacity: 0.35;"><i class="bi bi-exclamation-triangle-fill"></i></div>
+                </div>
+                <hr class="my-2 border-white opacity-25">
+                <p class="mb-0 small">
+                    Total Pending: <strong>₹{{ "%.2f"|format(overdue_bills|sum(attribute='amount_due')) }}</strong>
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm h-100" style="background: linear-gradient(135deg, #d97706, #f59e0b); color: white; border-radius: 14px;">
+            <div class="card-body p-4">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="mb-1 fw-semibold opacity-75 text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.08em;">Due Today</p>
+                        <h2 class="mb-0 fw-bold">{{ due_today_bills|length }}</h2>
+                        <p class="mb-0 small opacity-75 mt-1">Maturing today</p>
+                    </div>
+                    <div style="font-size: 2.5rem; opacity: 0.35;"><i class="bi bi-clock-fill"></i></div>
+                </div>
+                <hr class="my-2 border-white opacity-25">
+                <p class="mb-0 small">
+                    Total Due: <strong>₹{{ "%.2f"|format(due_today_bills|sum(attribute='amount_due')) }}</strong>
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm h-100" style="background: linear-gradient(135deg, #475569, #64748b); color: white; border-radius: 14px;">
+            <div class="card-body p-4">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="mb-1 fw-semibold opacity-75 text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.08em;">All Pending Bills</p>
+                        <h2 class="mb-0 fw-bold">{{ pending_bills|length }}</h2>
+                        <p class="mb-0 small opacity-75 mt-1">Any unpaid payment</p>
+                    </div>
+                    <div style="font-size: 2.5rem; opacity: 0.35;"><i class="bi bi-hourglass-split"></i></div>
+                </div>
+                <hr class="my-2 border-white opacity-25">
+                <p class="mb-0 small">
+                    Total: <strong>₹{{ "%.2f"|format(pending_bills|sum(attribute='amount_due')) }}</strong>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ─────────────────────────────────────────────── -->
+<!-- GLOBAL SEARCH BAR                             -->
+<!-- ─────────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-4" style="border-radius: 14px; overflow: hidden;">
+    <div class="card-body py-3 px-4">
+        <div class="d-flex gap-3 flex-wrap align-items-center">
+            <div style="flex: 1; min-width: 220px; position: relative;">
+                <i class="bi bi-search" style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:#94a3b8; font-size:1rem;"></i>
+                <input type="text" id="globalDueSearch"
+                       class="form-control ps-5 border-0 shadow-sm fw-semibold"
+                       style="background:#f8fafc; font-size:0.95rem;"
+                       placeholder="Search by customer name or invoice number…"
+                       oninput="handleGlobalSearch()">
+            </div>
+            <button class="btn btn-outline-secondary px-3 fw-bold" style="height:38px; white-space:nowrap;"
+                    onclick="clearGlobalSearch()">Clear</button>
+            <div id="globalSearchInfo" class="small text-muted d-none"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Combined Email Banner (shows when name search returns 2+ bills with a shared email) -->
+<div id="bulkEmailBanner" class="d-none mb-4">
+    <div class="alert alert-primary border-0 shadow-sm d-flex align-items-center gap-3 py-3 px-4 mb-0" style="border-radius:14px;">
+        <div style="font-size:1.6rem;">📨</div>
+        <div class="flex-grow-1">
+            <div class="fw-bold" id="bulkEmailBannerTitle">Multiple bills found for this customer</div>
+            <div class="small text-primary-emphasis mt-1" id="bulkEmailBannerDesc"></div>
+        </div>
+        <button class="btn btn-primary fw-bold px-4 shadow-sm" id="bulkEmailBtn"
+                onclick="sendBulkReminderEmail()">
+            <i class="bi bi-envelope-fill me-2"></i>Send Combined Email
+        </button>
+    </div>
+</div>
+
+<!-- ─────────────────────────────────────────────── -->
+<!-- SECTION 1: DUE TODAY                          -->
+<!-- ─────────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-4" style="border-radius: 14px; overflow: hidden;">
+    <div class="card-header border-0 py-3 px-4 d-flex justify-content-between align-items-center"
+         style="background: linear-gradient(90deg, #d97706, #fbbf24);">
+        <h5 class="mb-0 fw-bold text-white">
+            <i class="bi bi-clock-history me-2"></i>Bills Due Today
+            <span class="badge bg-white text-warning ms-2 fs-6">{{ due_today_bills|length }}</span>
+        </h5>
+        <span class="small text-white opacity-75">These bills reach their credit period today</span>
+    </div>
+    <div class="card-body p-0">
+        {% if not due_today_bills %}
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-check-circle-fill fs-1 text-success d-block mb-3"></i>
+            <p class="fw-bold mb-1">No bills are due today!</p>
+            <p class="small">You're all clear for today's collections.</p>
+        </div>
+        {% else %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0 align-middle">
+                <thead style="background: #fef3c7;">
+                    <tr>
+                        <th class="ps-4 py-3 text-uppercase fw-bold text-muted" style="font-size: 0.75rem; letter-spacing: 0.06em;">Invoice</th>
+                        <th class="py-3 text-uppercase fw-bold text-muted" style="font-size: 0.75rem; letter-spacing: 0.06em;">Customer</th>
+                        <th class="py-3 text-uppercase fw-bold text-muted" style="font-size: 0.75rem; letter-spacing: 0.06em;">Bill Date</th>
+                        <th class="py-3 text-uppercase fw-bold text-muted" style="font-size: 0.75rem; letter-spacing: 0.06em;">Credit Days</th>
+                        <th class="py-3 text-uppercase fw-bold text-muted text-end" style="font-size: 0.75rem; letter-spacing: 0.06em;">Amount Due</th>
+                        <th class="py-3 text-uppercase fw-bold text-muted" style="font-size: 0.75rem; letter-spacing: 0.06em;">Contact</th>
+                        <th class="pe-4 py-3 text-uppercase fw-bold text-muted" style="font-size: 0.75rem; letter-spacing: 0.06em;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for bill in due_today_bills %}
+                    <tr class="due-today-row all-bill-row"
+                        data-name="{{ (bill.client_name or '') | lower }}"
+                        data-invoice="{{ (bill.invoice_number or '') | lower }}"
+                        data-email="{{ bill.customer_email or '' }}"
+                        data-bill-id="{{ bill.id }}"
+                        data-section="today"
+                        style="cursor: pointer; transition: background 0.15s;"
+                        onclick="toggleBillDetails('today-{{ bill.id }}')">
+                        <td class="ps-4 py-3">
+                            <strong class="text-primary">#{{ bill.invoice_number }}</strong>
+                        </td>
+                        <td class="py-3">
+                            <span class="fw-semibold">{{ bill.client_name or '—' }}</span>
+                        </td>
+                        <td class="py-3">
+                            <span class="text-muted small">{{ bill.date_ist.strftime('%d %b %Y') }}</span>
+                        </td>
+                        <td class="py-3">
+                            <span class="badge bg-warning text-dark px-2">{{ bill.credit_period }} days</span>
+                        </td>
+                        <td class="py-3 text-end">
+                            <strong class="text-danger fs-6">₹{{ "%.2f"|format(bill.grand_total - (bill.paid_cash or 0) - (bill.paid_online or 0)) }}</strong>
+                            {% if (bill.paid_cash or 0) + (bill.paid_online or 0) > 0 %}
+                            <br><small class="text-muted">of ₹{{ "%.2f"|format(bill.grand_total) }}</small>
+                            {% endif %}
+                        </td>
+                        <td class="py-3">
+                            {% if bill.customer_phone %}
+                            <a href="tel:{{ bill.customer_phone }}" onclick="event.stopPropagation()" 
+                               class="btn btn-sm btn-outline-success px-2 py-1">
+                                <i class="bi bi-telephone-fill"></i> {{ bill.customer_phone }}
+                            </a>
+                            {% else %}
+                            <span class="text-muted small">No phone</span>
+                            {% endif %}
+                        </td>
+                        <td class="pe-4 py-3">
+                            <div class="d-flex gap-1 flex-wrap">
+                                <button class="btn btn-sm btn-warning fw-bold shadow-sm px-2"
+                                        onclick="event.stopPropagation(); openUpdateStatusModal({{ bill.id }}, '{{ bill.order_status }}', {{ bill.grand_total or 0 }}, '{{ bill.payment_mode or '' }}', {{ bill.paid_cash or 0 }}, {{ bill.paid_online or 0 }}, '{{ bill.payment_date or '' }}', '{{ bill.customer_email or '' }}', '{{ bill.customer_phone or '' }}', {{ bill.credit_period or 0 }})">
+                                    <i class="bi bi-cash-coin me-1"></i>Payment
+                                </button>
+                                {% if bill.customer_email %}
+                                <button class="btn btn-sm btn-outline-primary fw-bold px-2" id="email-btn-today-{{ bill.id }}"
+                                        onclick="event.stopPropagation(); sendReminderEmail({{ bill.id }}, 'today-{{ bill.id }}')"
+                                        title="Send reminder to {{ bill.customer_email }}">
+                                    <i class="bi bi-envelope-fill me-1"></i>Email
+                                </button>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    <!-- Expandable detail row -->
+                    <tr id="today-{{ bill.id }}" style="display:none; background: #fffbeb;">
+                        <td colspan="7" class="px-4 pb-3 pt-0">
+                            <div class="p-3 rounded border border-warning border-opacity-25 bg-white">
+                                <div class="row g-3">
+                                    <div class="col-md-5">
+                                        <p class="mb-2 fw-bold text-muted text-uppercase" style="font-size: 0.7rem; letter-spacing: 0.06em;">Products in Bill</p>
+                                        <table class="table table-sm table-bordered mb-0" style="min-width: auto !important;">
+                                            <thead class="table-light">
+                                                <tr><th>Product</th><th class="text-center" style="width:70px;">Qty</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for item in bill.items %}
+                                                <tr><td>{{ item.product_name }}</td><td class="text-center fw-bold">{{ item.qty }}</td></tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="col-md-7">
+                                        <div class="row g-2">
+                                            <div class="col-6">
+                                                <p class="mb-1 small text-muted fw-bold text-uppercase" style="font-size:0.65rem;">Total Amount</p>
+                                                <p class="fw-bold text-dark">₹{{ "%.2f"|format(bill.grand_total) }}</p>
+                                            </div>
+                                            <div class="col-6">
+                                                <p class="mb-1 small text-muted fw-bold text-uppercase" style="font-size:0.65rem;">Amount Paid</p>
+                                                <p class="fw-bold text-success">₹{{ "%.2f"|format((bill.paid_cash or 0) + (bill.paid_online or 0)) }}</p>
+                                            </div>
+                                            <div class="col-6">
+                                                <p class="mb-1 small text-muted fw-bold text-uppercase" style="font-size:0.65rem;">Balance Due</p>
+                                                <p class="fw-bold text-danger fs-5">₹{{ "%.2f"|format(bill.grand_total - (bill.paid_cash or 0) - (bill.paid_online or 0)) }}</p>
+                                            </div>
+                                            <div class="col-6">
+                                                <p class="mb-1 small text-muted fw-bold text-uppercase" style="font-size:0.65rem;">Payment Mode</p>
+                                                <p class="fw-bold">{{ bill.payment_mode or '—' }}</p>
+                                            </div>
+                                            {% if bill.customer_email %}
+                                            <div class="col-12">
+                                                <p class="mb-1 small text-muted fw-bold text-uppercase" style="font-size:0.65rem;">Email</p>
+                                                <a href="mailto:{{ bill.customer_email }}" class="text-primary small">{{ bill.customer_email }}</a>
+                                            </div>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ─────────────────────────────────────────────── -->
+<!-- SECTION 2: OVERDUE BILLS                       -->
+<!-- ─────────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-4" style="border-radius: 14px; overflow: hidden;">
+    <div class="card-header border-0 py-3 px-4 d-flex justify-content-between align-items-center"
+         style="background: linear-gradient(90deg, #dc2626, #f87171);">
+        <h5 class="mb-0 fw-bold text-white">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>Overdue Bills
+            <span class="badge bg-white text-danger ms-2 fs-6">{{ overdue_bills|length }}</span>
+        </h5>
+        <span class="small text-white opacity-75">Credit period has passed — payment still pending</span>
+    </div>
+    <div class="card-body p-0">
+        {% if not overdue_bills %}
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-check2-all fs-1 text-success d-block mb-3"></i>
+            <p class="fw-bold mb-1">No overdue bills!</p>
+            <p class="small">All credit periods are within limits.</p>
+        </div>
+        {% else %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0 align-middle">
+                <thead style="background: #fee2e2;">
+                    <tr>
+                        <th class="ps-4 py-3 text-uppercase fw-bold text-muted" style="font-size: 0.75rem; letter-spacing: 0.06em;">Invoice</th>
+                        <th class="py-3 text-uppercase fw-bold text-muted" style="font-size: 0.75rem; letter-spacing: 0.06em;">Customer</th>
+                        <th class="py-3 text-uppercase fw-bold text-muted" style="font-size: 0.75rem; letter-spacing: 0.06em;">Due Date</th>
+                        <th class="py-3 text-uppercase fw-bold text-muted text-center" style="font-size: 0.75rem; letter-spacing: 0.06em;">Days Overdue</th>
+                        <th class="py-3 text-uppercase fw-bold text-muted text-end" style="font-size: 0.75rem; letter-spacing: 0.06em;">Amount Due</th>
+                        <th class="py-3 text-uppercase fw-bold text-muted" style="font-size: 0.75rem; letter-spacing: 0.06em;">Contact</th>
+                        <th class="pe-4 py-3 text-uppercase fw-bold text-muted" style="font-size: 0.75rem; letter-spacing: 0.06em;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for bill in overdue_bills %}
+                    <tr class="overdue-row all-bill-row"
+                        data-name="{{ (bill.client_name or '') | lower }}"
+                        data-invoice="{{ (bill.invoice_number or '') | lower }}"
+                        data-email="{{ bill.customer_email or '' }}"
+                        data-bill-id="{{ bill.id }}"
+                        data-section="over"
+                        style="cursor: pointer; transition: background 0.15s;"
+                        onclick="toggleBillDetails('over-{{ bill.id }}')">
+                        <td class="ps-4 py-3">
+                            <strong class="text-primary">#{{ bill.invoice_number }}</strong>
+                        </td>
+                        <td class="py-3">
+                            <span class="fw-semibold">{{ bill.client_name or '—' }}</span>
+                        </td>
+                        <td class="py-3">
+                            <span class="text-danger small fw-bold">
+                                <i class="bi bi-calendar-x me-1"></i>{{ bill.maturity_date_str }}
+                            </span>
+                        </td>
+                        <td class="py-3 text-center">
+                            {% if bill.days_overdue >= 30 %}
+                            <span class="badge bg-danger px-2 py-1">{{ bill.days_overdue }}d overdue</span>
+                            {% elif bill.days_overdue >= 7 %}
+                            <span class="badge bg-warning text-dark px-2 py-1">{{ bill.days_overdue }}d overdue</span>
+                            {% else %}
+                            <span class="badge bg-secondary px-2 py-1">{{ bill.days_overdue }}d overdue</span>
+                            {% endif %}
+                        </td>
+                        <td class="py-3 text-end">
+                            <strong class="text-danger fs-6">₹{{ "%.2f"|format(bill.amount_due) }}</strong>
+                            {% if (bill.paid_cash or 0) + (bill.paid_online or 0) > 0 %}
+                            <br><small class="text-muted">of ₹{{ "%.2f"|format(bill.grand_total) }}</small>
+                            {% endif %}
+                        </td>
+                        <td class="py-3">
+                            {% if bill.customer_phone %}
+                            <a href="tel:{{ bill.customer_phone }}" onclick="event.stopPropagation()" 
+                               class="btn btn-sm btn-outline-success px-2 py-1">
+                                <i class="bi bi-telephone-fill"></i> {{ bill.customer_phone }}
+                            </a>
+                            {% else %}
+                            <span class="text-muted small">No phone</span>
+                            {% endif %}
+                        </td>
+                        <td class="pe-4 py-3">
+                            <div class="d-flex gap-1 flex-wrap">
+                                <button class="btn btn-sm btn-danger fw-bold shadow-sm px-2"
+                                        onclick="event.stopPropagation(); openUpdateStatusModal({{ bill.id }}, '{{ bill.order_status }}', {{ bill.grand_total or 0 }}, '{{ bill.payment_mode or '' }}', {{ bill.paid_cash or 0 }}, {{ bill.paid_online or 0 }}, '{{ bill.payment_date or '' }}', '{{ bill.customer_email or '' }}', '{{ bill.customer_phone or '' }}', {{ bill.credit_period or 0 }})">
+                                    <i class="bi bi-cash-coin me-1"></i>Payment
+                                </button>
+                                {% if bill.customer_email %}
+                                <button class="btn btn-sm btn-outline-primary fw-bold px-2" id="email-btn-over-{{ bill.id }}"
+                                        onclick="event.stopPropagation(); sendReminderEmail({{ bill.id }}, 'over-{{ bill.id }}')"
+                                        title="Send reminder to {{ bill.customer_email }}">
+                                    <i class="bi bi-envelope-fill me-1"></i>Email
+                                </button>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    <!-- Expandable detail row -->
+                    <tr id="over-{{ bill.id }}" style="display:none; background: #fff5f5;">
+                        <td colspan="7" class="px-4 pb-3 pt-0">
+                            <div class="p-3 rounded border border-danger border-opacity-25 bg-white">
+                                <div class="row g-3">
+                                    <div class="col-md-5">
+                                        <p class="mb-2 fw-bold text-muted text-uppercase" style="font-size: 0.7rem; letter-spacing: 0.06em;">Products in Bill</p>
+                                        <table class="table table-sm table-bordered mb-0" style="min-width: auto !important;">
+                                            <thead class="table-light">
+                                                <tr><th>Product</th><th class="text-center" style="width:70px;">Qty</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for item in bill.items %}
+                                                <tr><td>{{ item.product_name }}</td><td class="text-center fw-bold">{{ item.qty }}</td></tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="col-md-7">
+                                        <div class="row g-2">
+                                            <div class="col-6">
+                                                <p class="mb-1 small text-muted fw-bold text-uppercase" style="font-size:0.65rem;">Bill Date</p>
+                                                <p class="fw-bold">{{ bill.date_ist.strftime('%d %b %Y') }}</p>
+                                            </div>
+                                            <div class="col-6">
+                                                <p class="mb-1 small text-muted fw-bold text-uppercase" style="font-size:0.65rem;">Credit Period</p>
+                                                <p class="fw-bold">{{ bill.credit_period }} days</p>
+                                            </div>
+                                            <div class="col-6">
+                                                <p class="mb-1 small text-muted fw-bold text-uppercase" style="font-size:0.65rem;">Total Amount</p>
+                                                <p class="fw-bold text-dark">₹{{ "%.2f"|format(bill.grand_total) }}</p>
+                                            </div>
+                                            <div class="col-6">
+                                                <p class="mb-1 small text-muted fw-bold text-uppercase" style="font-size:0.65rem;">Already Paid</p>
+                                                <p class="fw-bold text-success">₹{{ "%.2f"|format((bill.paid_cash or 0) + (bill.paid_online or 0)) }}</p>
+                                            </div>
+                                            <div class="col-6">
+                                                <p class="mb-1 small text-muted fw-bold text-uppercase" style="font-size:0.65rem;">Balance Remaining</p>
+                                                <p class="fw-bold text-danger fs-5">₹{{ "%.2f"|format(bill.amount_due) }}</p>
+                                            </div>
+                                            <div class="col-6">
+                                                <p class="mb-1 small text-muted fw-bold text-uppercase" style="font-size:0.65rem;">Days Since Due</p>
+                                                <p class="fw-bold text-danger">{{ bill.days_overdue }} days</p>
+                                            </div>
+                                            {% if bill.customer_email %}
+                                            <div class="col-12">
+                                                <p class="mb-1 small text-muted fw-bold text-uppercase" style="font-size:0.65rem;">Email</p>
+                                                <a href="mailto:{{ bill.customer_email }}" class="text-primary small">{{ bill.customer_email }}</a>
+                                            </div>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ─────────────────────────────────────────────── -->
+<!-- SECTION 3: ALL PENDING BILLS (Collapsed/Filter)-->
+<!-- ─────────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-4" style="border-radius: 14px; overflow: hidden;">
+    <div class="card-header border-0 py-3 px-4 d-flex justify-content-between align-items-center"
+         style="background: linear-gradient(90deg, #475569, #64748b);">
+        <h5 class="mb-0 fw-bold text-white">
+            <i class="bi bi-hourglass-split me-2"></i>All Pending Bills
+            <span class="badge bg-white text-secondary ms-2 fs-6">{{ pending_bills|length }}</span>
+        </h5>
+        <button class="btn btn-sm btn-light fw-bold px-3" id="togglePendingBtn" 
+                onclick="togglePendingSection()">
+            <i class="bi bi-eye me-1" id="togglePendingIcon"></i>Show Pending
+        </button>
+    </div>
+
+    <!-- Filter Bar (inside section, hidden by default) -->
+    <div id="pendingFilterBar" class="px-4 py-3 border-bottom bg-light d-none">
+        <div class="d-flex gap-3 flex-wrap align-items-end">
+            <div style="flex: 2; min-width: 180px;">
+                <label class="fw-bold text-secondary text-uppercase mb-1" style="font-size: 0.72rem;">Search Customer / Invoice</label>
+                <input type="text" id="pendingSearch" class="form-control border-secondary" 
+                       placeholder="Type to filter..." oninput="filterPendingBills()">
+            </div>
+            <div style="flex: 1; min-width: 130px;">
+                <label class="fw-bold text-secondary text-uppercase mb-1" style="font-size: 0.72rem;">Payment Status</label>
+                <select id="pendingStatusFilter" class="form-select border-secondary" onchange="filterPendingBills()">
+                    <option value="all">All Pending</option>
+                    <option value="not_received">Payment Not Received</option>
+                    <option value="partial">Partial Payment</option>
+                </select>
+            </div>
+            <div style="flex: 1; min-width: 130px;">
+                <label class="fw-bold text-secondary text-uppercase mb-1" style="font-size: 0.72rem;">Sort By</label>
+                <select id="pendingSortFilter" class="form-select border-secondary" onchange="filterPendingBills()">
+                    <option value="newest">Newest First</option>
+                    <option value="oldest">Oldest First</option>
+                    <option value="amount_high">Amount: High → Low</option>
+                    <option value="amount_low">Amount: Low → High</option>
+                </select>
+            </div>
+            <button class="btn btn-outline-secondary px-3 fw-bold" style="height:38px;" onclick="resetPendingFilters()">Reset</button>
+        </div>
+        <p class="small text-muted mt-2 mb-0" id="pendingFilterCount">Showing all {{ pending_bills|length }} pending bills</p>
+
+        <!-- Pending Section Bulk Email Banner -->
+        <div id="pendingBulkEmailBanner" class="d-none mt-3">
+            <div class="d-flex align-items-center gap-3 px-3 py-2 rounded-3 border border-primary-subtle"
+                 style="background: #eff6ff;">
+                <div style="font-size:1.4rem;">&#128232;</div>
+                <div class="flex-grow-1">
+                    <div class="fw-bold text-primary" id="pendingBulkTitle" style="font-size:0.88rem;"></div>
+                    <div class="small text-secondary mt-1" id="pendingBulkDesc"></div>
+                </div>
+                <button class="btn btn-primary btn-sm fw-bold px-3 shadow-sm" id="pendingBulkBtn"
+                        onclick="sendPendingBulkEmail()">
+                    <i class="bi bi-envelope-fill me-1"></i>Send Combined Email
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card-body p-0" id="pendingBillsSection" style="display:none;">
+        {% if not pending_bills %}
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-check-all fs-1 text-success d-block mb-3"></i>
+            <p class="fw-bold mb-1">No pending bills found!</p>
+            <p class="small">All bills have complete payment records.</p>
+        </div>
+        {% else %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0 align-middle" id="pendingBillsTable">
+                <thead style="background: #f1f5f9;">
+                    <tr>
+                        <th class="ps-4 py-3 text-uppercase fw-bold text-muted" style="font-size: 0.75rem; letter-spacing: 0.06em;">Invoice</th>
+                        <th class="py-3 text-uppercase fw-bold text-muted" style="font-size: 0.75rem; letter-spacing: 0.06em;">Customer</th>
+                        <th class="py-3 text-uppercase fw-bold text-muted" style="font-size: 0.75rem; letter-spacing: 0.06em;">Bill Date</th>
+                        <th class="py-3 text-uppercase fw-bold text-muted" style="font-size: 0.75rem; letter-spacing: 0.06em;">Status</th>
+                        <th class="py-3 text-uppercase fw-bold text-muted text-end" style="font-size: 0.75rem; letter-spacing: 0.06em;">Amount Due</th>
+                        <th class="py-3 text-uppercase fw-bold text-muted" style="font-size: 0.75rem; letter-spacing: 0.06em;">Credit Days</th>
+                        <th class="pe-4 py-3 text-uppercase fw-bold text-muted" style="font-size: 0.75rem; letter-spacing: 0.06em;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="pendingTableBody">
+                    {% for bill in pending_bills %}
+                    <tr class="pending-bill-row all-bill-row"
+                        data-name="{{ (bill.client_name or '') | lower }}"
+                        data-invoice="{{ (bill.invoice_number or '') | lower }}"
+                        data-email="{{ bill.customer_email or '' }}"
+                        data-bill-id="{{ bill.id }}"
+                        data-section="pend"
+                        data-payment-status="{{ bill.payment_status }}"
+                        data-date="{{ bill.date.timestamp() }}"
+                        data-amount="{{ bill.grand_total - (bill.paid_cash or 0) - (bill.paid_online or 0) }}"
+                        style="cursor: pointer;"
+                        onclick="toggleBillDetails('pend-{{ bill.id }}')">
+                        <td class="ps-4 py-3">
+                            <strong class="text-primary">#{{ bill.invoice_number }}</strong>
+                        </td>
+                        <td class="py-3">
+                            <span class="fw-semibold">{{ bill.client_name or '—' }}</span>
+                        </td>
+                        <td class="py-3">
+                            <span class="text-muted small">{{ bill.date_ist.strftime('%d %b %Y') }}</span>
+                        </td>
+                        <td class="py-3">
+                            {% if bill.payment_status == 'Partial Payment' %}
+                            <span class="badge bg-info text-dark px-2">Partial</span>
+                            {% else %}
+                            <span class="badge bg-secondary px-2">Unpaid</span>
+                            {% endif %}
+                        </td>
+                        <td class="py-3 text-end">
+                            <strong class="text-dark">₹{{ "%.2f"|format(bill.grand_total - (bill.paid_cash or 0) - (bill.paid_online or 0)) }}</strong>
+                        </td>
+                        <td class="py-3">
+                            {% if bill.credit_period and bill.credit_period > 0 %}
+                            <span class="badge bg-warning text-dark">{{ bill.credit_period }}d credit</span>
+                            {% else %}
+                            <span class="text-muted small">None</span>
+                            {% endif %}
+                        </td>
+                        <td class="pe-4 py-3">
+                            <div class="d-flex gap-1 flex-wrap">
+                                <button class="btn btn-sm btn-outline-secondary fw-bold px-2"
+                                        onclick="event.stopPropagation(); openUpdateStatusModal({{ bill.id }}, '{{ bill.order_status }}', {{ bill.grand_total or 0 }}, '{{ bill.payment_mode or '' }}', {{ bill.paid_cash or 0 }}, {{ bill.paid_online or 0 }}, '{{ bill.payment_date or '' }}', '{{ bill.customer_email or '' }}', '{{ bill.customer_phone or '' }}', {{ bill.credit_period or 0 }})">
+                                    <i class="bi bi-pencil-fill me-1"></i>Update
+                                </button>
+                                {% if bill.customer_email %}
+                                <button class="btn btn-sm btn-outline-primary fw-bold px-2" id="email-btn-pend-{{ bill.id }}"
+                                        onclick="event.stopPropagation(); sendReminderEmail({{ bill.id }}, 'pend-{{ bill.id }}')"
+                                        title="Send reminder to {{ bill.customer_email }}">
+                                    <i class="bi bi-envelope-fill me-1"></i>Email
+                                </button>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    <!-- Expandable detail row -->
+                    <tr id="pend-{{ bill.id }}" style="display:none; background: #f8fafc;">
+                        <td colspan="7" class="px-4 pb-3 pt-0">
+                            <div class="p-3 rounded border bg-white">
+                                <div class="row g-3">
+                                    <div class="col-md-5">
+                                        <p class="mb-2 fw-bold text-muted text-uppercase" style="font-size: 0.7rem; letter-spacing: 0.06em;">Products in Bill</p>
+                                        <table class="table table-sm table-bordered mb-0" style="min-width: auto !important;">
+                                            <thead class="table-light">
+                                                <tr><th>Product</th><th class="text-center" style="width:70px;">Qty</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for item in bill.items %}
+                                                <tr><td>{{ item.product_name }}</td><td class="text-center fw-bold">{{ item.qty }}</td></tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="col-md-7">
+                                        <div class="row g-2">
+                                            <div class="col-6">
+                                                <p class="mb-1 small text-muted fw-bold text-uppercase" style="font-size:0.65rem;">Total Amount</p>
+                                                <p class="fw-bold text-dark">₹{{ "%.2f"|format(bill.grand_total) }}</p>
+                                            </div>
+                                            <div class="col-6">
+                                                <p class="mb-1 small text-muted fw-bold text-uppercase" style="font-size:0.65rem;">Paid So Far</p>
+                                                <p class="fw-bold text-success">₹{{ "%.2f"|format((bill.paid_cash or 0) + (bill.paid_online or 0)) }}</p>
+                                            </div>
+                                            <div class="col-6">
+                                                <p class="mb-1 small text-muted fw-bold text-uppercase" style="font-size:0.65rem;">Balance</p>
+                                                <p class="fw-bold text-danger">₹{{ "%.2f"|format(bill.grand_total - (bill.paid_cash or 0) - (bill.paid_online or 0)) }}</p>
+                                            </div>
+                                            {% if bill.customer_phone %}
+                                            <div class="col-6">
+                                                <p class="mb-1 small text-muted fw-bold text-uppercase" style="font-size:0.65rem;">Phone</p>
+                                                <a href="tel:{{ bill.customer_phone }}" class="text-success small fw-bold">{{ bill.customer_phone }}</a>
+                                            </div>
+                                            {% endif %}
+                                            {% if bill.customer_email %}
+                                            <div class="col-12">
+                                                <p class="mb-1 small text-muted fw-bold text-uppercase" style="font-size:0.65rem;">Email</p>
+                                                <a href="mailto:{{ bill.customer_email }}" class="text-primary small">{{ bill.customer_email }}</a>
+                                            </div>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <!-- No results message -->
+        <div id="pendingNoResults" class="text-center py-4 text-muted d-none">
+            <i class="bi bi-search fs-3 d-block mb-2"></i>
+            <p class="mb-0">No bills match your filter criteria.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ─────────────────────────────────────────────── -->
+<!-- Update Status Modal (same as main page)        -->
+<!-- ─────────────────────────────────────────────── -->
+<div class="modal fade" id="updateStatusModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title fw-bold">Update Bill Status</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <form id="updateStatusForm" method="POST" action="{{ url_for('tally.update_tally_status') }}">
+                    <input type="hidden" name="tally_id" id="update_tally_id">
+                    <input type="hidden" name="redirect_to" value="{{ url_for('tally.due_bills_page') }}">
+
+                    <ul class="nav nav-tabs mb-3" id="statusTabs" role="tablist">
+                      <li class="nav-item" role="presentation">
+                        <button class="nav-link active fw-bold" id="order-tab" data-bs-toggle="tab" data-bs-target="#orderTab" type="button" role="tab">Order Status</button>
+                      </li>
+                      <li class="nav-item" role="presentation">
+                        <button class="nav-link fw-bold" id="payment-tab" data-bs-toggle="tab" data-bs-target="#paymentTab" type="button" role="tab">Payment Status</button>
+                      </li>
+                      <li class="nav-item" role="presentation">
+                        <button class="nav-link fw-bold" id="customer-tab" data-bs-toggle="tab" data-bs-target="#customerTab" type="button" role="tab">Customer Info</button>
+                      </li>
+                    </ul>
+
+                    <input type="hidden" name="status_type" id="status_type_input" value="order">
+
+                    <div class="tab-content" id="statusTabContent">
+                        <!-- Order Status Tab -->
+                        <div class="tab-pane fade show active" id="orderTab" role="tabpanel">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold text-secondary text-uppercase" style="font-size:0.75rem;">Update Order Status</label>
+                                <select class="form-select p-2 border-warning" name="new_status" id="update_order_status">
+                                    <option value="Order Pending">Order Pending (Restores Inventory)</option>
+                                    <option value="Order Sent">Order Sent (Deducts Inventory)</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-bold text-secondary text-uppercase" style="font-size:0.75rem;">Warehouse (For Inventory Updates)</label>
+                                <select class="form-select p-2 border-primary" name="warehouse_id">
+                                    {% for w in warehouses %}
+                                    <option value="{{ w.id }}">{{ w.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <!-- Payment Status Tab -->
+                        <div class="tab-pane fade" id="paymentTab" role="tabpanel">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold text-secondary text-uppercase" style="font-size:0.75rem;">Total Amount (₹)</label>
+                                <input type="number" step="0.01" class="form-control p-2 border-warning fw-bold text-primary" name="grand_total" id="update_grand_total" value="0">
+                            </div>
+                            <div class="mb-3" id="update_payment_details_sec">
+                                <label class="form-label fw-bold text-secondary text-uppercase" style="font-size:0.75rem;">Date of Receiving</label>
+                                <input type="date" class="form-control p-2 mb-3 border-warning" name="payment_date" id="update_payment_date">
+                                
+                                <label class="form-label fw-bold text-secondary text-uppercase" style="font-size:0.75rem;">Payment Mode</label>
+                                <select class="form-select p-2 mb-3 border-warning" name="payment_mode" id="update_payment_mode">
+                                    <option value="">- Select Mode (Optional) -</option>
+                                    <option value="Cash">Cash</option>
+                                    <option value="Online">Online</option>
+                                    <option value="Both">Both (Cash &amp; Online)</option>
+                                </select>
+                                <div class="row gx-3">
+                                    <div class="col-6 mb-3" id="update_cash_div" style="display:none;">
+                                        <label class="form-label fw-bold text-secondary text-uppercase" style="font-size:0.75rem;">Cash (₹)</label>
+                                        <input type="number" step="0.01" class="form-control" name="cash_amount" id="update_cash_amount">
+                                    </div>
+                                    <div class="col-6 mb-3" id="update_online_div" style="display:none;">
+                                        <label class="form-label fw-bold text-secondary text-uppercase" style="font-size:0.75rem;">Online (₹)</label>
+                                        <input type="number" step="0.01" class="form-control" name="online_amount" id="update_online_amount">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Customer Info Tab -->
+                        <div class="tab-pane fade" id="customerTab" role="tabpanel">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold text-secondary text-uppercase" style="font-size:0.75rem;">Customer Email</label>
+                                <input type="email" class="form-control p-2 border-primary" name="customer_email" id="update_customer_email">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-bold text-secondary text-uppercase" style="font-size:0.75rem;">Customer Phone</label>
+                                <input type="text" class="form-control p-2 border-primary" name="customer_phone" id="update_customer_phone">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-bold text-secondary text-uppercase" style="font-size:0.75rem;">Credit Period (Days)</label>
+                                <input type="number" class="form-control p-2 border-warning" name="credit_period" id="update_credit_period" min="0">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer px-0 pb-0 mt-3 border-0">
+                        <button type="button" class="btn btn-outline-dark px-4" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-warning fw-bold px-4">Update Status</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .due-today-row:hover { background-color: #fef9c3 !important; }
+    .overdue-row:hover { background-color: #fef2f2 !important; }
+    .pending-bill-row:hover { background-color: #f8fafc !important; }
+    .pending-bill-row.filtered-out { display: none !important; }
+
+    /* ── Email Toast Notification ── */
+    #emailToast {
+        position: fixed;
+        bottom: 28px;
+        right: 28px;
+        z-index: 9999;
+        min-width: 300px;
+        max-width: 420px;
+        border-radius: 12px;
+        box-shadow: 0 8px 30px rgba(0,0,0,0.18);
+        display: none;
+        animation: slideInRight 0.3s ease;
+    }
+    @keyframes slideInRight {
+        from { transform: translateX(40px); opacity: 0; }
+        to   { transform: translateX(0);   opacity: 1; }
+    }
+    #emailToast.show { display: flex !important; }
+</style>
+
+<!-- Email Toast -->
+<div id="emailToast" class="alert align-items-start gap-3 mb-0 p-3" role="alert">
+    <div id="emailToastIcon" style="font-size:1.4rem;">📧</div>
+    <div>
+        <div id="emailToastTitle" class="fw-bold" style="font-size:0.9rem;"></div>
+        <div id="emailToastMsg" class="small mt-1"></div>
+    </div>
+    <button type="button" class="btn-close ms-auto flex-shrink-0" onclick="hideEmailToast()"></button>
+</div>
+
+
+<script>
+    // ── Toggle Expandable Bill Detail Row ──────────────────
+    function toggleBillDetails(rowId) {
+        const row = document.getElementById(rowId);
+        if (!row) return;
+        const isVisible = row.style.display !== 'none';
+        row.style.display = isVisible ? 'none' : 'table-row';
+    }
+
+    // ── Email Reminder ─────────────────────────────────────
+    let _emailToastTimer = null;
+
+    function showEmailToast(type, title, message) {
+        const toast = document.getElementById('emailToast');
+        const icon  = document.getElementById('emailToastIcon');
+        const tTitle = document.getElementById('emailToastTitle');
+        const tMsg   = document.getElementById('emailToastMsg');
+
+        toast.className = 'alert align-items-start gap-3 mb-0 p-3 show ' +
+            (type === 'success' ? 'alert-success' : type === 'error' ? 'alert-danger' : 'alert-info');
+        icon.textContent  = type === 'success' ? '✅' : type === 'error' ? '❌' : '⏳';
+        tTitle.textContent = title;
+        tMsg.textContent   = message;
+        toast.style.display = 'flex';
+
+        if (_emailToastTimer) clearTimeout(_emailToastTimer);
+        if (type !== 'loading') {
+            _emailToastTimer = setTimeout(hideEmailToast, 5000);
+        }
+    }
+
+    function hideEmailToast() {
+        const toast = document.getElementById('emailToast');
+        toast.classList.remove('show');  // remove the CSS class that has display:flex !important
+        toast.style.display = 'none';
+        if (_emailToastTimer) clearTimeout(_emailToastTimer);
+    }
+
+    async function sendReminderEmail(billId, rowPrefix) {
+        const btnId = 'email-btn-' + rowPrefix;
+        const btn = document.getElementById(btnId);
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>Sending…';
+        }
+
+        showEmailToast('loading', 'Sending…', 'Sending payment reminder email, please wait.');
+
+        try {
+            const res = await fetch(`/api/send_due_reminder/${billId}`, {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                showEmailToast('success', 'Email Sent!', data.message);
+            } else {
+                showEmailToast('error', 'Failed to Send', data.error || 'An unknown error occurred.');
+            }
+        } catch (err) {
+            showEmailToast('error', 'Network Error', err.message);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-envelope-fill me-1"></i>Email';
+            }
+        }
+    }
+
+    // ── Toggle All Pending Bills Section ───────────────────
+    let pendingVisible = false;
+    function togglePendingSection() {
+        pendingVisible = !pendingVisible;
+        const section = document.getElementById('pendingBillsSection');
+        const filterBar = document.getElementById('pendingFilterBar');
+        const btn = document.getElementById('togglePendingBtn');
+        const icon = document.getElementById('togglePendingIcon');
+
+        if (pendingVisible) {
+            section.style.display = 'block';
+            filterBar.classList.remove('d-none');
+            btn.innerHTML = '<i class="bi bi-eye-slash me-1"></i>Hide Pending';
+        } else {
+            section.style.display = 'none';
+            filterBar.classList.add('d-none');
+            btn.innerHTML = '<i class="bi bi-eye me-1"></i>Show Pending';
+        }
+    }
+
+    // ── Filter Pending Bills Table ─────────────────────────
+    function filterPendingBills() {
+        const searchVal = document.getElementById('pendingSearch').value.toLowerCase().trim();
+        const statusVal = document.getElementById('pendingStatusFilter').value;
+        const sortVal = document.getElementById('pendingSortFilter').value;
+
+        const tbody = document.getElementById('pendingTableBody');
+        const rows = Array.from(tbody.querySelectorAll('tr.pending-bill-row'));
+        let visibleCount = 0;
+
+        rows.forEach(row => {
+            const name = row.dataset.name || '';
+            const invoice = row.dataset.invoice || '';
+            const payStatus = row.dataset.paymentStatus || '';
+            
+            const matchSearch = !searchVal || name.includes(searchVal) || invoice.includes(searchVal);
+            let matchStatus = true;
+            if (statusVal === 'not_received') matchStatus = payStatus === 'Payment Not Received';
+            else if (statusVal === 'partial') matchStatus = payStatus === 'Partial Payment';
+
+            if (matchSearch && matchStatus) {
+                row.classList.remove('filtered-out');
+                visibleCount++;
+            } else {
+                row.classList.add('filtered-out');
+                // Also hide the corresponding detail row
+                const nextRow = row.nextElementSibling;
+                if (nextRow && nextRow.id && nextRow.id.startsWith('pend-')) {
+                    nextRow.style.display = 'none';
+                }
+            }
+        });
+
+        // Sort visible rows
+        const visibleRows = rows.filter(r => !r.classList.contains('filtered-out'));
+        visibleRows.sort((a, b) => {
+            if (sortVal === 'oldest') return parseFloat(a.dataset.date) - parseFloat(b.dataset.date);
+            if (sortVal === 'amount_high') return parseFloat(b.dataset.amount) - parseFloat(a.dataset.amount);
+            if (sortVal === 'amount_low') return parseFloat(a.dataset.amount) - parseFloat(b.dataset.amount);
+            return parseFloat(b.dataset.date) - parseFloat(a.dataset.date); // newest
+        });
+
+        visibleRows.forEach(row => {
+            const detailRow = row.nextElementSibling;
+            tbody.appendChild(row);
+            if (detailRow) tbody.appendChild(detailRow);
+        });
+
+        const noResults = document.getElementById('pendingNoResults');
+        if (noResults) {
+            noResults.classList.toggle('d-none', visibleCount > 0);
+        }
+        const countEl = document.getElementById('pendingFilterCount');
+        if (countEl) {
+            countEl.textContent = `Showing ${visibleCount} of {{ pending_bills|length }} pending bills`;
+        }
+
+        // ── Pending Bulk Email Banner ───────────────────────
+        const pendingBanner = document.getElementById('pendingBulkEmailBanner');
+        _currentPendingBulkIds = [];
+
+        if (searchVal && visibleCount >= 2) {
+            // Group visible rows by email
+            const emailMap = {};
+            rows.filter(r => !r.classList.contains('filtered-out')).forEach(row => {
+                const email = row.dataset.email;
+                if (!email) return;
+                if (!emailMap[email]) emailMap[email] = [];
+                emailMap[email].push(row.dataset.billId);
+            });
+
+            for (const [email, ids] of Object.entries(emailMap)) {
+                if (ids.length >= 2) {
+                    _currentPendingBulkIds = ids;
+                    document.getElementById('pendingBulkTitle').textContent =
+                        `${ids.length} pending bills found for this customer`;
+                    document.getElementById('pendingBulkDesc').textContent =
+                        `One combined reminder email will be sent to ${email} listing all ${ids.length} outstanding bills.`;
+                    pendingBanner.classList.remove('d-none');
+                    break;
+                }
+            }
+            if (!_currentPendingBulkIds.length) pendingBanner.classList.add('d-none');
+        } else {
+            pendingBanner.classList.add('d-none');
+        }
+    }
+
+    let _currentPendingBulkIds = [];
+
+    function resetPendingFilters() {
+        document.getElementById('pendingSearch').value = '';
+        document.getElementById('pendingStatusFilter').value = 'all';
+        document.getElementById('pendingSortFilter').value = 'newest';
+        document.getElementById('pendingBulkEmailBanner').classList.add('d-none');
+        _currentPendingBulkIds = [];
+        filterPendingBills();
+    }
+
+    async function sendPendingBulkEmail() {
+        if (!_currentPendingBulkIds.length) return;
+        const btn = document.getElementById('pendingBulkBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>Sending…';
+
+        showEmailToast('loading', 'Sending Combined Email…', 'Preparing consolidated reminder for all pending bills.');
+
+        try {
+            const res = await fetch('/api/send_bulk_due_reminder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({ bill_ids: _currentPendingBulkIds.map(Number) })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showEmailToast('success', 'Combined Email Sent!', data.message);
+            } else {
+                showEmailToast('error', 'Failed to Send', data.error || 'Unknown error.');
+            }
+        } catch (err) {
+            showEmailToast('error', 'Network Error', err.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-envelope-fill me-1"></i>Send Combined Email';
+        }
+    }
+
+    // ── Global Due Bills Search ────────────────────────────
+    let _currentBulkBillIds = [];
+
+    function handleGlobalSearch() {
+        const raw = document.getElementById('globalDueSearch').value.trim();
+        const q   = raw.toLowerCase();
+        const banner = document.getElementById('bulkEmailBanner');
+        const info   = document.getElementById('globalSearchInfo');
+
+        if (!q) {
+            clearGlobalSearch();
+            return;
+        }
+
+
+        // Filter all rows across all sections
+        const allRows = document.querySelectorAll('tr.all-bill-row');
+        let matchedRows = [];
+
+        allRows.forEach(row => {
+            const name    = row.dataset.name    || '';
+            const invoice = row.dataset.invoice || '';
+            const matches = name.includes(q) || invoice.includes(q);
+
+            const section = row.dataset.section;
+            const detailId = section + '-' + row.dataset.billId;
+            const detailRow = document.getElementById(detailId);
+
+            if (matches) {
+                row.style.display = '';
+                if (detailRow && detailRow.style.display === 'none') {
+                    // keep detail closed unless already open
+                }
+                matchedRows.push(row);
+            } else {
+                row.style.display = 'none';
+                if (detailRow) detailRow.style.display = 'none';
+            }
+        });
+
+        // Auto-expand Pending section if results are there
+        const pendingMatches = matchedRows.filter(r => r.dataset.section === 'pend');
+        if (pendingMatches.length > 0 && !pendingVisible) {
+            togglePendingSection();
+        }
+
+        // Info text
+        info.textContent = `${matchedRows.length} bill(s) found`;
+        info.classList.remove('d-none');
+
+        // ── Bulk email logic ────────────────────────────────
+        // Show banner whenever 2+ matched bills share the same email (regardless of search type)
+        banner.classList.add('d-none');
+        _currentBulkBillIds = [];
+
+        if (matchedRows.length >= 2) {
+            // Group by exact client name
+            const emailMap = {};
+            matchedRows.forEach(row => {
+                const email = row.dataset.email;
+                if (!email) return;
+                if (!emailMap[email]) emailMap[email] = [];
+                emailMap[email].push(row.dataset.billId);
+            });
+
+            // Find a group with 2+ bills
+            for (const [email, ids] of Object.entries(emailMap)) {
+                if (ids.length >= 2) {
+                    _currentBulkBillIds = ids;
+                    document.getElementById('bulkEmailBannerTitle').textContent =
+                        `${ids.length} outstanding bills found for this customer`;
+                    document.getElementById('bulkEmailBannerDesc').textContent =
+                        `One combined reminder email will be sent to ${email} listing all ${ids.length} pending bills.`;
+                    banner.classList.remove('d-none');
+                    break;
+                }
+            }
+        }
+    }
+
+    function clearGlobalSearch() {
+        document.getElementById('globalDueSearch').value = '';
+        document.getElementById('globalSearchInfo').classList.add('d-none');
+        document.getElementById('bulkEmailBanner').classList.add('d-none');
+        _currentBulkBillIds = [];
+
+        // Show all rows again
+        document.querySelectorAll('tr.all-bill-row').forEach(row => {
+            row.style.display = '';
+        });
+    }
+
+    async function sendBulkReminderEmail() {
+        if (!_currentBulkBillIds.length) return;
+        const btn = document.getElementById('bulkEmailBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Sending…';
+
+        showEmailToast('loading', 'Sending Combined Email…', 'Preparing and sending one consolidated reminder for all bills.');
+
+        try {
+            const res = await fetch('/api/send_bulk_due_reminder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({ bill_ids: _currentBulkBillIds.map(Number) })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showEmailToast('success', 'Combined Email Sent!', data.message);
+            } else {
+                showEmailToast('error', 'Failed to Send', data.error || 'Unknown error.');
+            }
+        } catch (err) {
+            showEmailToast('error', 'Network Error', err.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-envelope-fill me-2"></i>Send Combined Email';
+        }
+    }
+
+    // ── Update Status Modal ────────────────────────────────
+    function openUpdateStatusModal(id, orderStatus, grandTotal, paymentMode, cashAmount, onlineAmount, paymentDate) {
+        document.getElementById('update_tally_id').value = id;
+        document.getElementById('update_order_status').value = orderStatus || 'Order Pending';
+        document.getElementById('update_grand_total').value = grandTotal || 0;
+
+        let pDate = paymentDate;
+        if (!pDate || pDate === 'None' || pDate === '') {
+            const today = new Date();
+            pDate = today.toISOString().split('T')[0];
+        } else {
+            pDate = pDate.substring(0, 10);
+        }
+        document.getElementById('update_payment_date').value = pDate;
+
+        let mode = paymentMode;
+        if (paymentMode && paymentMode.includes('+')) mode = "Both";
+        document.getElementById('update_payment_mode').value = mode || '';
+
+        document.getElementById('update_cash_amount').value = cashAmount || '';
+        document.getElementById('update_online_amount').value = onlineAmount || '';
+
+        document.getElementById('update_payment_mode').dispatchEvent(new Event('change'));
+
+        const orderTab = new bootstrap.Tab(document.getElementById('order-tab'));
+        orderTab.show();
+        document.getElementById('status_type_input').value = 'order';
+
+        var modal = new bootstrap.Modal(document.getElementById('updateStatusModal'));
+        modal.show();
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        // Tab switching logic
+        document.getElementById('order-tab').addEventListener('click', function () {
+            document.getElementById('status_type_input').value = 'order';
+        });
+        document.getElementById('payment-tab').addEventListener('click', function () {
+            document.getElementById('status_type_input').value = 'payment';
+        });
+        document.getElementById('customer-tab').addEventListener('click', function () {
+            document.getElementById('status_type_input').value = 'customer';
+        });
+
+        // Payment mode toggle in modal
+        const pMode = document.getElementById('update_payment_mode');
+        const updateCDiv = document.getElementById('update_cash_div');
+        const updateODiv = document.getElementById('update_online_div');
+
+        pMode.addEventListener('change', function () {
+            updateCDiv.style.display = 'none';
+            updateODiv.style.display = 'none';
+            updateCDiv.classList.remove('col-12', 'col-6');
+            updateODiv.classList.remove('col-12', 'col-6');
+
+            if (this.value === 'Cash') {
+                updateCDiv.style.display = 'block';
+                updateCDiv.classList.add('col-12');
+            } else if (this.value === 'Online') {
+                updateODiv.style.display = 'block';
+                updateODiv.classList.add('col-12');
+            } else if (this.value === 'Both') {
+                updateCDiv.style.display = 'block';
+                updateODiv.style.display = 'block';
+                updateCDiv.classList.add('col-6');
+                updateODiv.classList.add('col-6');
+            }
+        });
+    });
+</script>
+
+{% endblock %}

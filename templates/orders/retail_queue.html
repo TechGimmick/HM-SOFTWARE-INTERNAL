@@ -264,6 +264,8 @@ async function advanceStatus(orderId, btn) {
         var data = await res.json();
 
         if (data.success) {
+            // Notify activity log badge of the change
+            window.notifyAppChange?.();
             // If the order was dispatched to the sales guy or fully completed, animate it out
             if (data.deleted || data.new_status === 'SentToSalesGuy') {
                 var card = document.getElementById('card-' + orderId);

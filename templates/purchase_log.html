@@ -30,7 +30,7 @@
     <div class="col-12 col-sm">
       <label class="pl-filter-label">Status</label>
       <select onchange="window.location.href=this.value" class="form-control form-control-sm">
-        {% for lbl, val in [('All Statuses','all'),('Waiting','waiting'),('Approved','approved'),('Partial','partial'),('Received','received')] %}
+        {% for lbl, val in [('All Statuses','all'),('Waiting','waiting'),('Approved','approved'),('Inter-Warehouse','inter_warehouse'),('Partial','partial'),('Received','received')] %}
         <option value="{{ url_for('purchase.purchase_log', date_range=active_date_range, supplier=active_supplier, status=val) }}" {{ 'selected' if active_status==val }}>{{ lbl }}</option>
         {% endfor %}
       </select>
@@ -83,6 +83,12 @@
     </div>
   </div>
   <div class="col-6 col-md-2">
+    <div class="pl-stat-card inter-wh">
+      <div class="stat-val">{{ stats.inter_warehouse }}</div>
+      <div class="stat-lbl">IW Transfer</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
     <div class="pl-stat-card damaged">
       <div class="stat-val">{{ stats.total_damaged }}</div>
       <div class="stat-lbl">Damaged Items</div>
@@ -104,6 +110,7 @@
           <th>PO ID</th>
           <th>Order Date</th>
           <th>Supplier</th>
+          <th>Warehouse</th>
           <th class="text-center">Items</th>
           <th>Status</th>
           <th>Damaged</th>
@@ -120,6 +127,10 @@
           data-received="{{ po.received_date or '' }}"
           data-damaged="{{ po.total_damaged or 0 }}"
           data-contact="{{ po.contact_info | e }}"
+          data-requested-warehouse="{{ po.requested_warehouse or '-' }}"
+          data-approved-destination="{{ po.approved_destination or '' }}"
+          data-source-warehouse="{{ po.source_warehouse or '' }}"
+          data-fulfillment-mode="{{ po.fulfillment_mode or '' }}"
           data-items='{{ po.line_items | tojson }}'
           data-search="{{ po.supplier|lower }} {{ po.id }}"
         >
@@ -127,9 +138,12 @@
           <td><span class="po-id">#{{ po.id }}</span></td>
           <td><span class="po-date">{{ po.date }}</span></td>
           <td><span class="supplier-name">{{ po.supplier }}</span></td>
+          <td>
+            <span class="status-pill sp-approved">{{ po.requested_warehouse or '-' }}</span>
+          </td>
           <td class="text-center"><span class="status-pill sp-partial-pending">{{ po.item_count }}</span></td>
           <td>
-            {% set sc = {'Waiting':'sp-waiting','Approved':'sp-approved','Pending':'sp-pending','Partial Pending':'sp-partial-pending','Partial Received':'sp-partial-received','Received':'sp-received'} %}
+            {% set sc = {'Waiting':'sp-waiting','Approved':'sp-approved','Pending':'sp-pending','Partial Pending':'sp-partial-pending','Partial Received':'sp-partial-received','Received':'sp-received','Inter-Warehouse Transfer':'sp-transfer'} %}
             <span class="status-pill {{ sc.get(po.status, 'sp-pending') }}">{{ po.status }}</span>
           </td>
           <td>
@@ -150,7 +164,7 @@
           </td>
         </tr>
         {% else %}
-        <tr class="po-empty"><td colspan="8">No purchase orders found for the selected filters.</td></tr>
+        <tr class="po-empty"><td colspan="9">No purchase orders found for the selected filters.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -247,6 +261,45 @@
   </div>
 </div>
 
+<!-- ── ADMIN APPROVAL MODAL ───────────────────────────────── -->
+<div id="approve-modal" class="po-dl-modal-overlay">
+  <div class="card p-4" style="max-width:520px; width:94%;">
+    <h5 class="mb-2">Approve Purchase Order</h5>
+    <p class="text-muted mb-3" id="approve-modal-po-meta"></p>
+    <form id="approve-po-form" method="POST" action="/approve_purchase">
+      <input type="hidden" name="purchase_id" id="approve_purchase_id">
+      <div class="form-group mb-3">
+        <label class="form-label fw-semibold">Requested Warehouse</label>
+        <input type="text" class="form-control" id="approve_requested_warehouse" readonly>
+      </div>
+      <div class="form-group mb-3">
+        <label class="form-label fw-semibold">Fulfillment Method</label>
+        <select name="fulfillment_mode" id="approve_fulfillment_mode" class="form-control" onchange="toggleApprovalMode()" required>
+          <option value="supplier">Supplier Delivery</option>
+          <option value="transfer">Inter-Warehouse Transfer</option>
+        </select>
+      </div>
+      <div class="form-group mb-3">
+        <label class="form-label fw-semibold">Buyer/Destination Warehouse</label>
+        <select name="destination_warehouse_id" id="approve_destination_wh" class="form-control" required>
+          {% for w in warehouses %}<option value="{{ w.id }}">{{ w.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-group mb-3" id="source-wh-wrap" style="display:none;">
+        <label class="form-label fw-semibold">Supplier Warehouse (Source)</label>
+        <select name="source_warehouse_id" id="approve_source_wh" class="form-control">
+          <option value="">Select Source Warehouse...</option>
+          {% for w in warehouses %}<option value="{{ w.id }}">{{ w.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-success">Confirm Approval</button>
+        <button type="button" class="btn btn-secondary" onclick="closeApproveModal()">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 const CURRENT_ROLE = "{{ current_role }}";
 // ── Table search ───────────────────────────────────────────
@@ -273,6 +326,10 @@ function openDrawerFromRow(row) {
     received_date:row.dataset.received || null,
     total_damaged:parseInt(row.dataset.damaged) || 0,
     contact_info: row.dataset.contact || '',
+    requested_warehouse: row.dataset.requestedWarehouse || '-',
+    approved_destination: row.dataset.approvedDestination || '',
+    source_warehouse: row.dataset.sourceWarehouse || '',
+    fulfillment_mode: row.dataset.fulfillmentMode || '',
     items:        JSON.parse(row.dataset.items || '[]')
   });
 }
@@ -290,7 +347,7 @@ function openDrawer(po) {
   document.getElementById('drawer-title').textContent = 'PO #' + po.id;
   const icons = {'Pending':'🟡','Partial Pending':'🟠','Partial Received':'🔵','Received':'🟢'};
   document.getElementById('drawer-meta').innerHTML =
-    `${icons[po.status]||''} ${po.status} &nbsp;|&nbsp; 📅 ${po.date} &nbsp;|&nbsp; 🏢 ${po.supplier}`;
+    `${icons[po.status]||''} ${po.status} &nbsp;|&nbsp; 📅 ${po.date} &nbsp;|&nbsp; 🏢 ${po.supplier} &nbsp;|&nbsp; 🎯 ${po.requested_warehouse || '-'}`;
 
   let body = '';
   if (po.total_damaged > 0)
@@ -322,10 +379,17 @@ function openDrawer(po) {
 
   // Approve button — admins only, Waiting POs
   if (po.status === 'Waiting' && CURRENT_ROLE === 'admin') {
-    footer += `<form action="/approve_purchase" method="POST" style="display:inline;">
-      <input type="hidden" name="purchase_id" value="${po.id}">
-      <button type="submit" class="btn btn-sm btn-success fw-bold">✅ Approve PO</button>
-    </form>`;
+    footer += `<button type="button" class="btn btn-sm btn-success fw-bold" onclick="openApproveModal(currentPO)">✅ Approve PO</button>`;
+  }
+
+  // Inter-Warehouse Transfer info panel — admins only
+  if (po.status === 'Inter-Warehouse Transfer' && CURRENT_ROLE === 'admin') {
+    footer += `<div class="alert alert-info py-2 px-3 mb-0 w-100" style="font-size:0.84rem;">
+      🔄 <strong>Inter-Warehouse Transfer in progress.</strong><br>
+      A Transfer PO has been auto-created (status: <strong>Approved</strong>) from
+      <strong>${po.source_warehouse || '?'}</strong> → <strong>${po.approved_destination || po.requested_warehouse || '?'}</strong>.<br>
+      Find that Transfer PO in the log and <em>Mark it Received</em> to complete the stock movement.
+    </div>`;
   }
 
   // Revert to Waiting — admins only, Approved POs
@@ -443,6 +507,46 @@ function sendEmail(supplier, poId, contactInfo, items) {
   const subject = encodeURIComponent(`Purchase Order #${poId} — Safe Environment International`);
   const body    = encodeURIComponent(`Dear ${supplier},\n\nPlease find below our Purchase Order #${poId}:\n\n${lines}\n\nKindly confirm receipt.\n\nRegards,\nSafe Environment International`);
   window.open(`mailto:${contactInfo||''}?subject=${subject}&body=${body}`, '_blank');
+}
+
+function openApproveModal(po) {
+  document.getElementById('approve_purchase_id').value = po.id;
+  document.getElementById('approve_requested_warehouse').value = po.requested_warehouse || '-';
+  document.getElementById('approve-modal-po-meta').textContent = `PO #${po.id} • Supplier: ${po.supplier}`;
+
+  const destination = document.getElementById('approve_destination_wh');
+  const source = document.getElementById('approve_source_wh');
+  const mode = document.getElementById('approve_fulfillment_mode');
+
+  // Preselect destination to requested warehouse (by text match)
+  const requestedName = (po.requested_warehouse || '').trim();
+  if (requestedName) {
+    const option = [...destination.options].find(o => o.text.trim() === requestedName);
+    if (option) destination.value = option.value;
+  }
+
+  mode.value = 'supplier';
+  source.value = '';
+  toggleApprovalMode();
+  document.getElementById('approve-modal').classList.add('active');
+}
+
+function toggleApprovalMode() {
+  const mode = document.getElementById('approve_fulfillment_mode').value;
+  const sourceWrap = document.getElementById('source-wh-wrap');
+  const sourceSelect = document.getElementById('approve_source_wh');
+  if (mode === 'transfer') {
+    sourceWrap.style.display = 'block';
+    sourceSelect.required = true;
+  } else {
+    sourceWrap.style.display = 'none';
+    sourceSelect.required = false;
+    sourceSelect.value = '';
+  }
+}
+
+function closeApproveModal() {
+  document.getElementById('approve-modal').classList.remove('active');
 }
 </script>
 {% endblock %}

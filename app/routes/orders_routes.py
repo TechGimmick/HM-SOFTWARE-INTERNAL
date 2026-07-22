@@ -297,7 +297,10 @@ def invoice_orders_list():
 @login_required
 def invoice_order_create():
     """Create a new order in the Orders Book (admin, sales and store only)."""
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
     if current_user.role not in ('admin', 'sales', 'store'):
+        if is_ajax:
+            return jsonify({'success': False, 'error': 'Access denied.'}), 403
         flash('Access denied.', 'danger')
         return redirect(url_for('orders.invoice_orders_list'))
 
@@ -323,7 +326,10 @@ def invoice_order_create():
                 pass
 
     if not supplier_name:
-        flash('Customer / Party name is required.', 'warning')
+        err = 'Customer / Party name is required.'
+        if is_ajax:
+            return jsonify({'success': False, 'error': err}), 400
+        flash(err, 'warning')
         return redirect(url_for('orders.invoice_orders_list'))
 
     # Collect line items
@@ -386,8 +392,12 @@ def invoice_order_create():
                  f'Order{inv_tag} created for {supplier_name} ({len(line_items)} items){urgent_tag}',
                  ref_id=so.id, ref_type='SupplierOrder')
     db.session.commit()
-    flash(f'Order #{so.id} created successfully.', 'success')
-    return redirect(url_for('orders.invoice_order_detail', order_id=so.id))
+    success_msg = f'Order #{so.id} created successfully.'
+    flash(success_msg, 'success')
+    redirect_url = url_for('orders.invoice_order_detail', order_id=so.id)
+    if is_ajax:
+        return jsonify({'success': True, 'redirect': redirect_url, 'message': success_msg})
+    return redirect(redirect_url)
 
 
 @orders_bp.route('/invoice_orders/<int:order_id>')

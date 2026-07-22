@@ -653,6 +653,8 @@
             const data = await res.json();
 
             if (data.success) {
+                // Notify activity log badge of the change
+                window.notifyAppChange?.();
                 const newStatus = data.new_status;
 
                 // Update badge
@@ -728,6 +730,8 @@
             const data = await res.json();
 
             if (data.success) {
+                // Notify activity log badge of the change
+                window.notifyAppChange?.();
                 // ── Update the inner detail badge ────────────────────────────
                 const badge = document.getElementById('order-status-badge-' + saleId);
                 if (badge) {
@@ -795,6 +799,8 @@
             const data = await res.json();
 
             if (data.success) {
+                // Notify activity log badge of the change
+                window.notifyAppChange?.();
                 // Update the inner order-status badge
                 const badge = document.getElementById('order-status-badge-' + saleId);
                 if (badge) {

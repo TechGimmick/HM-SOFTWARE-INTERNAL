@@ -111,9 +111,9 @@ def _get_cashbook_data(date_obj):
 
     # ── 2. Tally (GST) invoice sales (not credit) on this date ────────────
     tally_bills = TallyBill.query.filter(
-        func.date(TallyBill.date) == date_obj,
+        func.date(func.coalesce(TallyBill.payment_date, TallyBill.date)) == date_obj,
         TallyBill.payment_status.in_(['Payment Received', 'Partial Payment'])
-    ).order_by(TallyBill.date.asc(), TallyBill.id.asc()).all()
+    ).order_by(func.coalesce(TallyBill.payment_date, TallyBill.date).asc(), TallyBill.id.asc()).all()
 
     tally_entries = []
     for t in tally_bills:
@@ -121,10 +121,12 @@ def _get_cashbook_data(date_obj):
         online_in = t.paid_online or 0.0
         if cash_in <= 0 and online_in <= 0:
             continue  # pure credit — skip
+            
+        display_time = t.payment_date if t.payment_date else t.date
         tally_entries.append({
             'id'          : t.id,
             'invoice'     : t.invoice_number or f'#{t.id}',
-            'time'        : (t.date + timedelta(hours=5, minutes=30)).strftime('%I:%M %p'),
+            'time'        : (display_time + timedelta(hours=5, minutes=30)).strftime('%I:%M %p'),
             'client'      : t.client_name or '—',
             'description' : ', '.join(
                               [f"{i.product_name} ×{i.qty}" for i in t.items]

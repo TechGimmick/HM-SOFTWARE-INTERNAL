@@ -7,8 +7,6 @@ from sqlalchemy import inspect, text
 
 
 
-
-
 def _ensure_retail_orders_tables():
     """Idempotent: creates retail_orders and retail_order_items tables if absent."""
     inspector = inspect(db.engine)

@@ -250,7 +250,7 @@
 
         <!-- Footer -->
         <div class="log-footer">
-            <span class="log-footer-text" id="logLastUpdated">Refreshes every 30s</span>
+            <span class="log-footer-text" id="logLastUpdated">Updated on change</span>
             <button class="log-refresh-btn" id="logRefreshBtn" onclick="fetchActivityLog(true)">
                 <svg id="refreshIcon" width="12" height="12" fill="currentColor" viewBox="0 0 16 16"
                     style="margin-right:3px;">
@@ -454,16 +454,17 @@
                 .replace(/"/g, '&quot;');
         }
 
-        // Auto-refresh badge every 30 seconds
-        function startAutoRefresh() {
-            updateBadge(); // initial badge update on page load
-            _refreshTimer = setInterval(() => {
-                updateBadge();
-                if (_sidebarOpen) fetchActivityLog(false);
-            }, 30000);
-        }
+        // Load badge count once on page load (no polling)
+        document.addEventListener('DOMContentLoaded', function() {
+            updateBadge();
+        });
 
-        document.addEventListener('DOMContentLoaded', startAutoRefresh);
+        // Global hook — call this from any page after a successful AJAX mutation
+        // e.g. window.notifyAppChange?.() after saving/updating/deleting via fetch
+        window.notifyAppChange = function() {
+            updateBadge();
+            if (_sidebarOpen) fetchActivityLog(false);
+        };
     </script>
 
     {% endif %}

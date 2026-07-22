@@ -367,7 +367,8 @@
         </div>
 
         <input type="hidden" name="sales_cart" id="sales_cart_input">
-        <button type="submit" class="btn btn-success w-100 mt-2">Update Bill</button>
+        <div id="edit-save-error" class="d-none mt-2 p-2 rounded fw-bold" style="background:#fff1f1; border:1px solid #f5c6cb; color:#721c24; font-size:0.92rem;"></div>
+        <button type="submit" id="update-bill-btn" class="btn btn-success w-100 mt-2">Update Bill</button>
     </form>
 </div>
 
@@ -862,6 +863,44 @@
             });
         });
 
+        // --- AJAX Form Submission for Edit Bill ---
+        const editForm = document.querySelector('form[action*="process_edit_sale"]');
+        if (editForm) {
+            editForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                // Sync hidden cart
+                inputStore.value = JSON.stringify(salesCart);
+
+                const saveBtn = document.getElementById('update-bill-btn');
+                const errBanner = document.getElementById('edit-save-error');
+                saveBtn.disabled = true;
+                saveBtn.textContent = 'Saving…';
+                errBanner.classList.add('d-none');
+
+                try {
+                    const res = await fetch(this.action, {
+                        method: 'POST',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                        body: new FormData(this)
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        window.location.href = data.redirect;
+                    } else {
+                        errBanner.textContent = '⚠️ ' + (data.error || 'Unknown error. Please try again.');
+                        errBanner.classList.remove('d-none');
+                        errBanner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        saveBtn.disabled = false;
+                        saveBtn.textContent = 'Update Bill';
+                    }
+                } catch (err) {
+                    errBanner.textContent = '⚠️ Network error: ' + err.message;
+                    errBanner.classList.remove('d-none');
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Update Bill';
+                }
+            });
+        }
 
     });
 

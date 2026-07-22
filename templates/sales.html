@@ -430,6 +430,8 @@
 
         <input type="hidden" name="sales_cart" id="sales_cart_input">
 
+        <div id="sale-save-error" class="d-none mt-2 p-2 rounded fw-bold" style="background:#fff1f1; border:1px solid #f5c6cb; color:#721c24; font-size:0.92rem;"></div>
+
         <button type="submit" id="record-sale-btn" class="btn btn-success w-100" disabled
 
             title="Add at least one item to the cart">Record Sale</button>
@@ -1636,17 +1638,91 @@
 
                     e.preventDefault();
 
-                    // Optional confirmation
-
-                    // if(confirm("Submit Bill?")) 
-
-                    document.getElementById('sales-form').submit();
+                    submitSalesForm();
 
                 }
 
             });
 
         }
+
+        // --- AJAX Form Submission ---
+
+        async function submitSalesForm() {
+
+            if (salesCart.length === 0) { alert('Please add at least one item to the cart.'); return; }
+
+            // Sync hidden input with current cart state
+
+            document.getElementById('sales_cart_input').value = JSON.stringify(salesCart);
+
+            const form = document.getElementById('sales-form');
+
+            const saveBtn = document.getElementById('record-sale-btn');
+
+            const errBanner = document.getElementById('sale-save-error');
+
+            saveBtn.disabled = true;
+
+            saveBtn.textContent = 'Saving…';
+
+            errBanner.classList.add('d-none');
+
+            try {
+
+                const res = await fetch(form.action, {
+
+                    method: 'POST',
+
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+
+                    body: new FormData(form)
+
+                });
+
+                const data = await res.json();
+
+                if (data.success) {
+
+                    window.location.href = data.redirect;
+
+                } else {
+
+                    errBanner.textContent = '⚠️ ' + (data.error || 'Unknown error. Please try again.');
+
+                    errBanner.classList.remove('d-none');
+
+                    errBanner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+                    saveBtn.disabled = salesCart.length === 0;
+
+                    saveBtn.textContent = 'Record Sale';
+
+                }
+
+            } catch (err) {
+
+                errBanner.textContent = '⚠️ Network error: ' + err.message;
+
+                errBanner.classList.remove('d-none');
+
+                saveBtn.disabled = salesCart.length === 0;
+
+                saveBtn.textContent = 'Record Sale';
+
+            }
+
+        }
+
+        // Intercept native form submit and use AJAX instead
+
+        document.getElementById('sales-form').addEventListener('submit', function(e) {
+
+            e.preventDefault();
+
+            submitSalesForm();
+
+        });
 
     });
 

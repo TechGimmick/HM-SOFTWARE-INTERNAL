@@ -3,10 +3,10 @@
 {% block content %}
 <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
     <h2>Tally Bills Log</h2>
-    <div class="d-flex gap-2">
-        <button type="button" class="btn btn-warning shadow-sm fw-bold border-dark" onclick="openDueBillsModal()">
-            <i class="bi bi-bell-fill"></i> Show Today's Due Bills
-        </button>
+    <div class="d-flex gap-2 flex-wrap">
+        <a href="{{ url_for('tally.due_bills_page') }}" class="btn btn-warning shadow-sm fw-bold border-dark">
+            <i class="bi bi-bell-fill me-1"></i> Due Bills Center
+        </a>
         <button type="button" class="btn btn-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#newTallyModal">
             <i class="bi bi-plus-circle me-1"></i> + Add New Tally Invoice
         </button>
@@ -87,7 +87,7 @@
 
                     <div class="text-end d-flex align-items-center gap-3" style="flex: 1; justify-content: flex-end;">
                         <strong class="fs-5 text-dark">₹{{ "%.2f"|format(tally.grand_total) }}</strong>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openUpdateStatusModal({{ tally.id }}, '{{ tally.order_status }}', {{ tally.grand_total or 0 }}, '{{ tally.payment_mode or '' }}', {{ tally.paid_cash or 0 }}, {{ tally.paid_online or 0 }})">Edit Status</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openUpdateStatusModal({{ tally.id }}, '{{ tally.order_status }}', {{ tally.grand_total or 0 }}, '{{ tally.payment_mode or '' }}', {{ tally.paid_cash or 0 }}, {{ tally.paid_online or 0 }}, '{{ tally.payment_date or '' }}', '{{ tally.customer_email or '' }}', '{{ tally.customer_phone or '' }}', {{ tally.credit_period or 0 }})">Edit</button>
                     </div>
                 </div>
             </summary>
@@ -148,6 +148,9 @@
                       <li class="nav-item" role="presentation">
                         <button class="nav-link fw-bold" id="payment-tab" data-bs-toggle="tab" data-bs-target="#paymentTab" type="button" role="tab">Payment Status</button>
                       </li>
+                      <li class="nav-item" role="presentation">
+                        <button class="nav-link fw-bold" id="customer-tab" data-bs-toggle="tab" data-bs-target="#customerTab" type="button" role="tab">Customer Info</button>
+                      </li>
                     </ul>
 
                     <input type="hidden" name="status_type" id="status_type_input" value="order">
@@ -180,6 +183,9 @@
                             </div>
 
                             <div class="mb-3" id="update_payment_details_sec">
+                                <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Date of Receiving</label>
+                                <input type="date" class="form-control p-2 mb-3 border-warning" name="payment_date" id="update_payment_date">
+                                
                                 <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Payment Mode</label>
                                 <select class="form-select p-2 mb-3 border-warning" name="payment_mode" id="update_payment_mode">
                                     <option value="">- Select Mode (Optional) -</option>
@@ -198,6 +204,22 @@
                                         <input type="number" step="0.01" class="form-control" name="online_amount" id="update_online_amount">
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+
+                        <!-- Customer Info Tab -->
+                        <div class="tab-pane fade" id="customerTab" role="tabpanel">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Customer Email</label>
+                                <input type="email" class="form-control p-2 border-primary" name="customer_email" id="update_customer_email">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Customer Phone</label>
+                                <input type="text" class="form-control p-2 border-primary" name="customer_phone" id="update_customer_phone">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-bold text-secondary text-uppercase tally-form-label">Credit Period (Days)</label>
+                                <input type="number" class="form-control p-2 border-warning" name="credit_period" id="update_credit_period" min="0">
                             </div>
                         </div>
                     </div>
@@ -364,6 +386,7 @@
             </div>
             
             <div class="modal-footer bg-light border-top-0 d-flex flex-wrap gap-2 justify-content-end mt-4 px-0 pb-0">
+                <div id="tally-save-error" class="d-none w-100 mb-2 p-2 rounded fw-bold" style="background:#fff1f1; border:1px solid #f5c6cb; color:#721c24; font-size:0.92rem;"></div>
                 <button type="button" class="btn btn-outline-secondary px-4 w-100 w-sm-auto" style="max-width: fit-content;" data-bs-dismiss="modal">Cancel</button>
                 <button type="submit" class="btn btn-primary px-4 fw-bold w-100 w-sm-auto" style="max-width: fit-content;" id="saveTallyBtn">Save Tally Invoice</button>
             </div>
@@ -681,6 +704,8 @@
             const existing = tallyCartMap.find(c => c.name === name);
             if (existing) {
                 existing.qty += qty;
+                // If existing entry had no id but this add does, upgrade it
+                if (!existing.id && id) existing.id = id;
             } else {
                 tallyCartMap.push({ id: id, name: name, qty: qty });
             }
@@ -692,11 +717,43 @@
             document.getElementById('product_stock_info').style.display = 'none';
         });
 
-        // Form submission check
-        document.getElementById('tallyForm').addEventListener('submit', function(e) {
+        // Form submission — AJAX so cart is preserved on error
+        document.getElementById('tallyForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
             if (tallyCartMap.length === 0) {
-                e.preventDefault();
                 alert('Please add at least one product to the bill!');
+                return;
+            }
+            // Ensure hidden cart JSON is up to date
+            jsonInput.value = JSON.stringify(tallyCartMap);
+
+            const saveBtn = document.getElementById('saveTallyBtn');
+            const errBanner = document.getElementById('tally-save-error');
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving…';
+            errBanner.classList.add('d-none');
+
+            try {
+                const res = await fetch(this.action, {
+                    method: 'POST',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    body: new FormData(this)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    window.location.href = data.redirect;
+                } else {
+                    errBanner.textContent = '⚠️ ' + (data.error || 'Unknown error. Please try again.');
+                    errBanner.classList.remove('d-none');
+                    errBanner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Save Tally Invoice';
+                }
+            } catch (err) {
+                errBanner.textContent = '⚠️ Network error: ' + err.message;
+                errBanner.classList.remove('d-none');
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save Tally Invoice';
             }
         });
         
@@ -799,6 +856,9 @@
         });
         document.getElementById('payment-tab').addEventListener('click', function() {
             document.getElementById('status_type_input').value = 'payment';
+        });
+        document.getElementById('customer-tab').addEventListener('click', function() {
+            document.getElementById('status_type_input').value = 'customer';
         });
 
         // Payment logic inside Update Modal
@@ -975,6 +1035,8 @@
                 const existingInCart = tallyCartMap.find(c => c.name === newProd.name);
                 if (existingInCart) {
                     existingInCart.qty += currentQty;
+                    // Always upgrade the id — the newly saved product always has a real DB id
+                    existingInCart.id = newProd.id;
                 } else {
                     tallyCartMap.push({ id: newProd.id, name: newProd.name, qty: currentQty });
                 }
@@ -993,10 +1055,24 @@
         };
     });
 
-    function openUpdateStatusModal(id, orderStatus, grandTotal, paymentMode, cashAmount, onlineAmount) {
+    function openUpdateStatusModal(id, orderStatus, grandTotal, paymentMode, cashAmount, onlineAmount, paymentDate, customerEmail, customerPhone, creditPeriod) {
         document.getElementById('update_tally_id').value = id;
         document.getElementById('update_order_status').value = orderStatus || 'Order Pending';
         document.getElementById('update_grand_total').value = grandTotal || 0;
+        document.getElementById('update_customer_email').value = customerEmail || '';
+        document.getElementById('update_customer_phone').value = customerPhone || '';
+        document.getElementById('update_credit_period').value = creditPeriod || 0;
+        
+        let pDate = paymentDate;
+        if (!pDate || pDate === 'None' || pDate === '') {
+            // default to today's date
+            const today = new Date();
+            pDate = today.toISOString().split('T')[0];
+        } else {
+            // handle date from server format
+            pDate = pDate.substring(0, 10);
+        }
+        document.getElementById('update_payment_date').value = pDate;
         
         let mode = paymentMode;
         if(paymentMode && paymentMode.includes('+')) mode = "Both";

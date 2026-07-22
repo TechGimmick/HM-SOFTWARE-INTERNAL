@@ -130,6 +130,7 @@ class TallyBill(db.Model):
     customer_email = db.Column(db.String(150), nullable=True)
     customer_phone = db.Column(db.String(20), nullable=True)
     warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouses.id'), nullable=True)
+    payment_date = db.Column(db.DateTime, nullable=True)
     items = db.relationship('TallyBillItem', backref='bill', lazy=True, cascade="all, delete-orphan")
 
     @property
@@ -137,7 +138,6 @@ class TallyBill(db.Model):
         if self.date:
             return self.date + datetime.timedelta(hours=5, minutes=30)
         return None
-
 
 
 class TallyBillItem(db.Model):
@@ -182,7 +182,6 @@ class WarehouseStock(db.Model):
 
     # Relationship to product
     product = db.relationship('Product', backref=db.backref('warehouse_stocks', lazy=True, cascade="all, delete-orphan"))
-
 
 
 class StockTransfer(db.Model):

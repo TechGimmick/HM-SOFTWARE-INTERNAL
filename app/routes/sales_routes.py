@@ -143,11 +143,15 @@ def add_client():
 @sales_bp.route("/process_sale", methods=["POST"])
 @login_required
 def process_sale():
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
     try:
         client_name = request.form.get('client_name')
         cart_json = request.form.get('sales_cart')
         warehouse_id = request.form.get('warehouse_id')
-        if not client_name or not cart_json: return redirect(url_for('sales.sales_page'))
+        if not client_name or not cart_json:
+            if is_ajax:
+                return jsonify({'success': False, 'error': 'Missing client name or cart items.'}), 400
+            return redirect(url_for('sales.sales_page'))
 
         cart_items = json.loads(cart_json)
         bill_type = request.form.get('bill_type', 'simple')
@@ -201,7 +205,10 @@ def process_sale():
                          f'New Tally Bill #{invoice_number} for {client_name}',
                          ref_id=new_tally.id, ref_type='TallyBill')
             db.session.commit()   # single atomic commit: tally bill + log
-            flash(f"Tally Bill #{invoice_number} recorded for {client_name}.", "success")
+            success_msg = f"Tally Bill #{invoice_number} recorded for {client_name}."
+            flash(success_msg, "success")
+            if is_ajax:
+                return jsonify({'success': True, 'redirect': url_for('sales.tally_sales_page'), 'message': success_msg})
             return redirect(url_for('sales.tally_sales_page'))
 
         # --- NORMAL SIMPLE BILL SAVING ---
@@ -288,10 +295,16 @@ def process_sale():
             # Never let order creation crash the main sale flow
             print(f'[RetailOrder] Failed to auto-create order for sale #{new_sale.id}: {ro_err}')
 
-        flash(f"Bill No. {new_sale.id} recorded.", "success")
+        success_msg = f"Bill No. {new_sale.id} recorded for {client_name}."
+        flash(success_msg, "success")
+        if is_ajax:
+            return jsonify({'success': True, 'redirect': url_for('sales.sales_log'), 'message': success_msg})
     except Exception as e:
         db.session.rollback()
-        flash(f"Error: {e}", "danger")
+        err_msg = f"Error saving sale: {e}"
+        flash(err_msg, "danger")
+        if is_ajax:
+            return jsonify({'success': False, 'error': err_msg}), 400
 
     return redirect(url_for('sales.sales_log'))
 
@@ -519,6 +532,7 @@ def get_last_sale_price():
 @sales_bp.route("/process_edit_sale", methods=["POST"])
 @login_required
 def process_edit_sale():
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
     try:
         sales_id = request.form.get('sales_id')
         bill_type = request.form.get('bill_type', 'simple')
@@ -527,7 +541,10 @@ def process_edit_sale():
         warehouse_id = request.form.get('warehouse_id')
 
         sale = db.session.get(Sale, sales_id)
-        if not sale or not cart_json: return redirect(url_for('sales.sales_log'))
+        if not sale or not cart_json:
+            if is_ajax:
+                return jsonify({'success': False, 'error': 'Sale not found or missing cart items.'}), 400
+            return redirect(url_for('sales.sales_log'))
 
         cart_items = json.loads(cart_json)
         old_items  = list(sale.items)   # snapshot before any deletes
@@ -571,7 +588,10 @@ def process_edit_sale():
             db.session.delete(sale)
             log_activity('DELETE', 'Sales', f'Deleted sale #{sale_id_snap} ({client_name_snap})', ref_id=sale_id_snap, ref_type='Sale')
             db.session.commit()   # single atomic commit: delete + log together
-            flash("Bill deleted.", "success")
+            success_msg = "Bill deleted."
+            flash(success_msg, "success")
+            if is_ajax:
+                return jsonify({'success': True, 'redirect': url_for('sales.sales_log'), 'message': success_msg})
             return redirect(url_for('sales.sales_log'))
 
         # --- 3. Clear old line items ---
@@ -637,11 +657,17 @@ def process_edit_sale():
         sale.grand_total = running_total
         log_activity('UPDATE', 'Sales', f'Updated sale #{sale.id} for {sale.client_name} — ₹{running_total:.0f}', ref_id=sale.id, ref_type='Sale')
         db.session.commit()   # single atomic commit: edit + log together
-        flash(f"Bill #{sale.id} updated.", "success")
+        success_msg = f"Bill #{sale.id} updated successfully."
+        flash(success_msg, "success")
+        if is_ajax:
+            return jsonify({'success': True, 'redirect': url_for('sales.sales_log'), 'message': success_msg})
 
     except Exception as e:
         db.session.rollback()
-        flash(f"Error: {e}", "danger")
+        err_msg = f"Error updating bill: {e}"
+        flash(err_msg, "danger")
+        if is_ajax:
+            return jsonify({'success': False, 'error': err_msg}), 400
         
     return redirect(url_for('sales.sales_log'))
 

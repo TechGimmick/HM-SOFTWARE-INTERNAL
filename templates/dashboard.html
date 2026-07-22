@@ -354,8 +354,15 @@ function loadDashboardData() {
 
 window.addEventListener('DOMContentLoaded', function () {
     loadDashboardData();
-    // Auto-refresh every 2 minutes (120000ms)
+    {% if current_user.role == 'store' %}
+    // Store dashboard: auto-refresh to catch new orders placed by sales team
     setInterval(loadDashboardData, 120000);
+    {% else %}
+    // Admin/Sales dashboard: refresh when user returns to this tab (zero polling cost)
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) loadDashboardData();
+    });
+    {% endif %}
 });
 </script>
 {% endblock %}
