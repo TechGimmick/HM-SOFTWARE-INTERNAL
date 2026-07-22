@@ -48,4 +48,5 @@ gunicorn==23.0.0
 # ── Utilities ─────────────────────────────────────────────
 colorama==0.4.6
 defusedxml==0.7.1
-typing_extensions==4.15.0python-dotenv>=1.0.0
+typing_extensions==4.15.0
+python-dotenv>=1.0.0
