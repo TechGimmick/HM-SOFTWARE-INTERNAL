@@ -86,15 +86,53 @@
                     {% endif %}
 
                     {% if current_user.role == 'sales' or current_user.role == 'admin' %}
-                    <li class="nav-item">
-                        <a class="nav-link fw-bold text-secondary" href="{{ url_for('sales.sales_page') }}">Sales</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link fw-bold text-secondary" href="{{ url_for('tally.tally_sales_page') }}">Tally
-                            Bills</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link fw-bold text-secondary" href="{{ url_for('sales.sales_log') }}">History</a>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link fw-bold text-secondary dropdown-toggle" href="#"
+                           id="salesDropdown" role="button"
+                           data-bs-toggle="dropdown" aria-expanded="false">Sales</a>
+                        <ul class="dropdown-menu shadow-sm border-0" aria-labelledby="salesDropdown">
+                            <li>
+                                <a class="dropdown-item d-flex align-items-center gap-2"
+                                   href="{{ url_for('sales.sales_page') }}">
+                                    <span>🧾</span>
+                                    <span>
+                                        <strong class="hmp-dash-item-title">New Sale</strong>
+                                        <small class="text-muted hmp-dash-item-subtitle d-block">Record a retail sale</small>
+                                    </span>
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item d-flex align-items-center gap-2"
+                                   href="{{ url_for('tally.tally_sales_page') }}">
+                                    <span>📊</span>
+                                    <span>
+                                        <strong class="hmp-dash-item-title">Tally Bills</strong>
+                                        <small class="text-muted hmp-dash-item-subtitle d-block">Invoices &amp; credit bills</small>
+                                    </span>
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item d-flex align-items-center gap-2"
+                                   href="{{ url_for('sales.sales_log') }}">
+                                    <span>📜</span>
+                                    <span>
+                                        <strong class="hmp-dash-item-title">Sales History</strong>
+                                        <small class="text-muted hmp-dash-item-subtitle d-block">View &amp; edit past bills</small>
+                                    </span>
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider my-1"></li>
+                            <li>
+                                <a class="dropdown-item d-flex align-items-center gap-2"
+                                   href="{{ url_for('challan.challan_book') }}">
+                                    <span>📋</span>
+                                    <span>
+                                        <strong class="hmp-dash-item-title">Challan Book</strong>
+                                        <small class="text-muted hmp-dash-item-subtitle d-block">Delivery notes &amp; dispatch</small>
+                                    </span>
+                                </a>
+                            </li>
+                        </ul>
                     </li>
                     {% endif %}
 

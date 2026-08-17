@@ -344,3 +344,47 @@ class SupplierOrderItem(db.Model):
     product_name = db.Column(db.String(200), nullable=False)
     qty          = db.Column(db.Integer, nullable=False, default=1)
     unit         = db.Column(db.String(50), nullable=True)
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  CHALLAN BOOK MODULE
+# ──────────────────────────────────────────────────────────────────────────────
+
+class Challan(db.Model):
+    """
+    Delivery challan — a dispatch note issued before a formal invoice.
+    Status flow: Open → Accepted → Withdrawn → Bill Created
+    """
+    __tablename__ = 'challans'
+    id               = db.Column(db.Integer, primary_key=True)
+    challan_number   = db.Column(db.String(50), unique=True, nullable=False)   # e.g. CH-0001
+    date             = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    customer_name    = db.Column(db.String(200), nullable=False)
+    customer_phone   = db.Column(db.String(20), nullable=True)
+    customer_address = db.Column(db.Text, nullable=True)                       # delivery address
+    dispatched_by    = db.Column(db.String(200), nullable=True)                # person dispatching goods
+    notes            = db.Column(db.Text, nullable=True)                       # optional remarks
+    # Status flow: Open → Accepted → Withdrawn → Bill Created
+    status           = db.Column(db.String(30), default='Open', nullable=False, index=True)
+    created_by_id    = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    created_at       = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    updated_at       = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    items   = db.relationship('ChallanItem', backref='challan', lazy=True, cascade='all, delete-orphan')
+    creator = db.relationship('User', foreign_keys=[created_by_id])
+
+    @property
+    def date_ist(self):
+        if self.date:
+            return self.date + datetime.timedelta(hours=5, minutes=30)
+        return None
+
+
+class ChallanItem(db.Model):
+    """Line items for a Challan — product name + qty + unit only, plus optional manual price."""
+    __tablename__ = 'challan_items'
+    id           = db.Column(db.Integer, primary_key=True)
+    challan_id   = db.Column(db.Integer, db.ForeignKey('challans.id', ondelete='CASCADE'), nullable=False)
+    product_name = db.Column(db.String(200), nullable=False)
+    qty          = db.Column(db.Integer, nullable=False, default=1)
+    unit         = db.Column(db.String(50), nullable=True)
+    price        = db.Column(db.Float, nullable=True)

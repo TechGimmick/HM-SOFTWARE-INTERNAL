@@ -116,6 +116,57 @@ def _ensure_supplier_orders_tables():
             """))
 
 
+
+
+def _ensure_challan_tables():
+    """Idempotent: creates challans and challan_items tables if absent."""
+    inspector = inspect(db.engine)
+    if not inspector.has_table('challans'):
+        with db.engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE challans (
+                    id               SERIAL PRIMARY KEY,
+                    challan_number   VARCHAR(50) NOT NULL UNIQUE,
+                    date             TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    customer_name    VARCHAR(200) NOT NULL,
+                    customer_phone   VARCHAR(20),
+                    customer_address TEXT,
+                    dispatched_by    VARCHAR(200),
+                    notes            TEXT,
+                    status           VARCHAR(30) NOT NULL DEFAULT 'Open',
+                    created_by_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    created_at       TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at       TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_challans_status ON challans (status)"
+            ))
+    else:
+        # Idempotent: add customer_address if upgrading an existing table
+        existing_cols = {col['name'] for col in inspector.get_columns('challans')}
+        if 'customer_address' not in existing_cols:
+            with db.engine.begin() as conn:
+                conn.execute(text("ALTER TABLE challans ADD COLUMN customer_address TEXT NULL"))
+
+    if not inspector.has_table('challan_items'):
+        with db.engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE challan_items (
+                    id           SERIAL PRIMARY KEY,
+                    challan_id   INTEGER NOT NULL REFERENCES challans(id) ON DELETE CASCADE,
+                    product_name VARCHAR(200) NOT NULL,
+                    qty          INTEGER NOT NULL DEFAULT 1,
+                    unit         VARCHAR(50),
+                    price        FLOAT
+                )
+            """))
+    else:
+        existing_item_cols = {col['name'] for col in inspector.get_columns('challan_items')}
+        if 'price' not in existing_item_cols:
+            with db.engine.begin() as conn:
+                conn.execute(text("ALTER TABLE challan_items ADD COLUMN price FLOAT NULL"))
+
 def _ensure_sales_payment_date_column():
     inspector = inspect(db.engine)
     if not inspector.has_table('sales'):
@@ -228,6 +279,7 @@ def create_app():
     from app.routes.cashbook_routes import cashbook_bp
     from app.routes.activity_routes import activity_bp
     from app.routes.orders_routes import orders_bp
+    from app.routes.challan_routes import challan_bp
      
     app.register_blueprint(purchase_bp)
     app.register_blueprint(auth_bp)
@@ -238,6 +290,7 @@ def create_app():
     app.register_blueprint(cashbook_bp)
     app.register_blueprint(activity_bp)
     app.register_blueprint(orders_bp)
+    app.register_blueprint(challan_bp)
 
     with app.app_context():
         db.create_all()
@@ -246,6 +299,7 @@ def create_app():
         _ensure_activity_log_table()
         _ensure_retail_orders_tables()
         _ensure_supplier_orders_tables()
+        _ensure_challan_tables()
         _auto_cleanup_old_logs(app)
 
     # Flask CLI command: `flask cleanup-logs`
@@ -261,4 +315,3 @@ def create_app():
         print(f'[cleanup-logs] Deleted {n} log entries older than 90 days (cutoff: {cutoff.date()}).')
     
     return app
-
